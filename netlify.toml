@@ -34,11 +34,6 @@
 
 # The modules are fetched by the browser's own loader with ?b=<BUILD_ID>, so
 # they are already cache-busted per build.
-[[headers]]
-  for = "/js/*"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
 # The phone tiers live in their own directories; they are as immutable as the
 # full-size set they were made from.
 [[headers]]
@@ -48,5 +43,10 @@
 
 [[headers]]
   for = "/lo/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/js/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"

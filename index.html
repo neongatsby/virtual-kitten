@@ -340,7 +340,7 @@ camera.position.set(0, 1.4, 3.0);
 
 const controls = new OrbitControls(camera, canvas);
 Object.assign(controls, {
-  enableDamping:true, dampingFactor:.055, enablePan:false,
+  enableDamping:true, dampingFactor:.055, enablePan:true, screenSpacePanning:true, panSpeed:.9,
   minDistance:.28, maxDistance:8, rotateSpeed:.62, autoRotateSpeed:.35
 });
 controls.minPolarAngle = THREE.MathUtils.degToRad(48);
@@ -1142,6 +1142,49 @@ function pointerRay(ev){
   return _ray.ray;
 }
 let shuffle = false, shuffleEvery = 15, shuffleAcc = 0;
+
+/* ── the simulation runs on its own clock ─────────────────────────────────
+   See the header of pipeline/fix_dt_and_feed.py for the measurement. Short
+   version: at a steady 30 fps a held foot moves 0.015 mm a frame; at a JITTERED
+   30 fps it moves 5.6 mm and reverses direction 145 times in 99 frames. Every
+   layer in the stack integrates its springs with explicit Euler, and a varying h
+   makes explicit Euler ring.
+
+   `SIM.max` is the anti-spiral clamp: below about 15 fps she goes into slow
+   motion rather than the browser trying to catch up a second of physics in one
+   frame and locking up. */
+const SIM = { on: true, step: 1/60, max: 4 };
+let simAcc = 0, simSteps = 0;
+
+/* Everything that integrates, in the one order that works. Anything that reads
+   the finished pose — fadeBaked, the camera follow, the room dissolve — stays
+   outside, once per rendered frame. */
+function stepSim(h){
+  if (BLOCK.balance) BLOCK.balance.api.balRestore();
+  if (mixer && timeScale > 0){
+    mixer.update(h * timeScale);
+    if (shuffle && baseActions.size > 1){
+      shuffleAcc += h * timeScale;
+      if (shuffleAcc >= shuffleEvery){
+        shuffleAcc = 0;
+        const pool = [...baseActions.keys()].filter(n => n.startsWith('Idle_') &&
+                     baseActions.get(n) !== current);
+        if (pool.length)
+          playBase(BLOCK.mood ? BLOCK.mood.api.moodClip(pool)
+                              : pool[(Math.random() * pool.length) | 0]);
+      }
+    }
+  }
+  if (BLOCK.balance) BLOCK.balance.api.balCapture();
+  applyGrab(h);
+  if (BLOCK.twist) BLOCK.twist.apply(h);
+  if (BLOCK.balance) BLOCK.balance.apply(h);
+  if (BLOCK.gaze) BLOCK.gaze.apply(h);
+  if (BLOCK.mood) BLOCK.mood.apply(h);
+  if (BLOCK.face) BLOCK.face.apply(h);
+  applyJiggle(h);
+  if (BLOCK.hair) BLOCK.hair.apply(h);
+}
 /* Filled in start(). Every call site is guarded on the entry being non-null, so
    a block that throws during setup takes itself out rather than the page. */
 const BLOCK = { face: null, gaze: null, hair: null, twist: null, balance: null,
@@ -1380,7 +1423,67 @@ function start(){
   setInterval(refreshFeel, 250);
   if (current) markRail(current.getClip().name);
   setProgress(1);
-  setTimeout(() => boot.classList.add('gone'), 260);
+  async function warmUp(){
+    const t0 = performance.now();
+    let programs = 0, textures = 0;
+    try {
+      setProgress(1, 'Compiling shaders');
+      if (renderer.compileAsync) await renderer.compileAsync(scene, camera);
+      else renderer.compile(scene, camera);
+
+      setProgress(1, 'Uploading textures');
+      const seen = new Set();
+      scene.traverse(o => {
+        const ms = Array.isArray(o.material) ? o.material
+                 : (o.material ? [o.material] : []);
+        for (const m of ms) for (const k in m){
+          const t = m[k];
+          if (t && t.isTexture && !seen.has(t.uuid)){
+            seen.add(t.uuid);
+            try { renderer.initTexture(t); } catch (e) {}
+          }
+        }
+      });
+      textures = seen.size;
+
+      /* Binding is per action and happens on play(), so every clip she has
+         not danced yet costs one on its first use. Wake them at zero weight,
+         then put each back exactly as it was — the additive layers are
+         already running and are left alone. */
+      setProgress(1, 'Binding clips');
+      if (mixer){
+        const woke = [];
+        for (const clip of clipList){
+          const a = mixer.clipAction(clip);
+          if (a.isRunning()) continue;
+          woke.push([a, a.getEffectiveWeight()]);
+          a.enabled = true; a.setEffectiveWeight(0); a.play();
+        }
+        mixer.update(0);
+        for (const [a, w] of woke){ a.stop(); a.setEffectiveWeight(w); }
+      }
+
+      /* One composed frame. The bloom chain and the shadow depth materials
+         compile on their first pass, which renderer.compile does not cover. */
+      renderer.shadowMap.needsUpdate = true;
+      if (usePost) composer.render(1/60); else renderer.render(scene, camera);
+      programs = renderer.info.programs ? renderer.info.programs.length : 0;
+      console.log('warm-up ' + Math.round(performance.now() - t0) + ' ms · '
+                  + programs + ' programs · ' + textures + ' textures');
+      window.__warm = { ms: Math.round(performance.now() - t0), programs, textures };
+    } catch (e){
+      console.warn('warm-up skipped:', e);
+      window.__warm = { error: String(e) };
+    }
+  }
+  /* Never hold the card hostage to a slow compile: whichever finishes first
+     opens the stage, and the warm-up carries on underneath if it is still
+     going. Software GL in the container takes 48 s for the same 42 programs a
+     GPU does in well under one. */
+  let shown = false;
+  const reveal = () => { if (shown) return; shown = true;
+                         setTimeout(() => boot.classList.add('gone'), 120); };
+  Promise.race([warmUp(), new Promise(r => setTimeout(r, 8000))]).then(reveal);
 }
 
 /* ── hunger, and feeding her ──────────────────────────────────────────────
@@ -1403,10 +1506,10 @@ const NEEDS = { on: true, hunger: 0.30, rate: 1/420, thresh: 0.55 };
    valence and arousal together, so one event cannot say "pleasant AND calming" —
    but `fed` plus `settled` can, and in the proportions each food deserves. */
 const FOOD = [
-  { id:'water', label:'Water', fills:0.14, joy:0.30, calm:0.75 },
-  { id:'apple', label:'Apple', fills:0.34, joy:0.60, calm:0.30 },
-  { id:'bowl',  label:'Bowl',  fills:0.62, joy:0.50, calm:0.55 },
-  { id:'cake',  label:'Cake',  fills:0.26, joy:1.00, calm:0.05 },
+  { id:'water', label:'Water', fills:0.14, joy:0.70, calm:0.55 },
+  { id:'apple', label:'Apple', fills:0.34, joy:0.85, calm:0.20 },
+  { id:'bowl',  label:'Bowl',  fills:0.62, joy:0.80, calm:0.35 },
+  { id:'cake',  label:'Cake',  fills:0.26, joy:1.00, calm:0.00 },
 ];
 
 function registerFoodEvents(){
@@ -1414,7 +1517,11 @@ function registerFoodEvents(){
   const EV = BLOCK.mood.api.MOOD_EV;
   /* Added to the table rather than written into the block: the table is data and
      the block hands it out, so this needs no edit to another session's file. */
-  if (!EV.fed) EV.fed = { v: +0.34, a: +0.12, k: 'i', f: 'fed' };
+  /* Big on purpose. A face only fires when the feeling moves more than 0.35 in
+     one go, so the first version's +0.34 could not reach its own threshold
+     except through the contrast multiplier — which is why being fed read as a
+     drift rather than as a reaction. */
+  if (!EV.fed) EV.fed = { v: +0.62, a: +0.30, k: 'i', f: 'fed' };
   /* No fatigue class on `hungry`: habituating to your own hunger is not a thing
      a body does, and a class would quietly switch it off after a few minutes —
      which is exactly the bug that made `stumble` unreachable. */
@@ -1430,8 +1537,34 @@ function feedHer(item){
        build that fires an expression, and it decides what being fed looks like
        from where she already was — which is the whole point of the contrast
        mechanic. Feeding her after a rough patch should land harder. */
+    /* ⚠ ORDER. `settled` pulls arousal DOWN, and firing it before `fed` let it
+       eat the lift — being handed cake came out looking like a nap. The lift
+       goes first and the calm is a much smaller trailer on top. */
     M.moodEvent('fed', item.joy);
-    if (item.calm > 0) M.moodEvent('settled', item.calm);
+    if (item.calm > 0) M.moodEvent('settled', item.calm * 0.35);
+
+    /* Jump the expression queue. MOODX.cool holds faces off for MD.cool so she
+       is not a slideshow, which is right for things that happen TO her — a
+       stumble, a landing, her eyes finding you. Being handed something is a
+       discrete event with an obvious cause, and waiting 1.3 s to react to it
+       reads as her not having noticed.
+
+       The mood block still chooses WHICH face. This only stops it waiting. */
+    M.MOODX.cool = 0;
+    /* `moodFeel` is the mood block's OWN face-picker: it reads where her feeling
+       now is, asks the face block for the nearest expression to it, excludes the
+       one she is already wearing, and sets the cooldown behind itself. So the
+       mood block still chooses WHICH face — this only stops it waiting its turn.
+
+       Clearing the cooldown first and ticking applyMood was the previous attempt
+       and it did nothing: the autonomous paths only fire on their own triggers
+       (a roll, her eyes arriving), and being handed something is not one of
+       them. Valence jumped 0.645 and her face stayed neutral. */
+    if (M.moodFeel) M.moodFeel(0.85 + 0.15 * item.joy, 2.2 + 1.2 * item.joy);
+
+    /* Being fed is also one of the few things that should build ease — the slow
+       clock that decides how far up the touch arc she will go at all. */
+    M.MOODX.ease = Math.min(1, M.MOODX.ease + 0.04 * item.joy);
   }
   refreshFeel();
 }
@@ -1740,6 +1873,7 @@ window.__stage = { GRAB, JIG, CHAINS, JIGGLE, jigState, bones, camera, controls,
                    /* the needs loop, so a probe can starve her and feed her
                       without going through the DOM */
                    NEEDS, FOOD, feedHer, updateNeeds, refreshFeel, overHer,
+                   SIM, stepSim, get simSteps(){ return simSteps; },
                    playBase: (n) => playBase(n), pickChain, pickSoft, pickAny, pointerRay,
                    segHit, solveArm, applyJiggle, ray: _ray,
                    get mixer(){ return mixer; }, baseActions,
@@ -1900,6 +2034,16 @@ function buildPanels(){
     toggle(mb,'shuffleOn','Shuffle idles',false,v=>{ shuffle=v; shuffleAcc=0; });
     slider(mb,'shuffleEvery','Shuffle every',5,40,1,15,v=>Math.round(v)+'s',v=>{ shuffleEvery=v; });
     toggle(mb,'followRoot','Follow her when she moves',true,v=>{ followRoot=v; });
+    toggle(mb,'simFixed','Fixed simulation step',SIM.on,v=>{ SIM.on=v; simAcc=0; });
+    slider(mb,'simRate','…at',30,144,1,1/SIM.step,v=>Math.round(v)+' Hz',
+           v=>{ SIM.step=1/v; simAcc=0; });
+    slider(mb,'simMax','…catching up at most',1,8,1,SIM.max,v=>Math.round(v)+' steps/frame',
+           v=>{ SIM.max=v; });
+    mb.appendChild(el('p','note','Every layer here integrates its springs with '
+      + 'explicit Euler, which rings when the timestep changes underneath it. '
+      + 'Measured on a held foot: at a steady 30 fps it moves 0.015 mm a frame; '
+      + 'at a jittered 30 fps it moves 5.6 mm and reverses direction 145 times '
+      + 'in 99 frames. Turning this off is how you see that for yourself.'));
     mb.appendChild(el('p','note','Pick a clip from the rail at the bottom. Shuffle drifts between the idles on its own so you can watch the transitions. Pace carries real root motion — the camera pans with her.'));
   }
 
@@ -2342,6 +2486,12 @@ function buildPanels(){
     [['auto','Auto — targets 60 fps'],['high','High — full DPR'],['balanced','Balanced — 1.5× cap'],['battery','Battery — 1× cap']],
     'auto', v => { autoQuality = v==='auto'; renderScale = 1;
                    dprCap = v==='battery'?1 : v==='balanced'?1.5 : 2; resize(); });
+  picker(b,'rescap','Render resolution',
+    [['1080','1080p — capped long edge'],['1440','1440p'],
+     ['native','Native — every pixel'],['720','720p — the cheap seats']],
+    '1080', v => { resCap = RES_OPTS[v] ?? 1920;
+                   try { localStorage.setItem('stage.res', v); } catch (e) {}
+                   resize(); });
 
   /* — Session — */
   b = section('Session');
@@ -2388,10 +2538,24 @@ addEventListener('keydown', e => {
 
 /* ───────────────────────── resize + loop ───────────────────────── */
 let dprCap = 2, autoQuality = true, renderScale = 1;
+/* Cap the drawing buffer's long edge, in device pixels. 1920 is 1080p held
+   vertically. ?res=native|1440|1080|720 overrides, and the choice sticks. */
+const RES_OPTS = { native: 0, '1440': 2560, '1080': 1920, '720': 1280 };
+let resCap = 1920;
+try {
+  const ask = (new URLSearchParams(location.search).get('res') || '').toLowerCase();
+  const saved = localStorage.getItem('stage.res');
+  const pick = ask || saved;
+  if (pick && pick in RES_OPTS) resCap = RES_OPTS[pick];
+} catch (e) {}
 function resize(){
   const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
   camera.aspect = w / h; camera.updateProjectionMatrix();
-  const dpr = Math.min(devicePixelRatio || 1, dprCap) * renderScale;
+  let dpr = Math.min(devicePixelRatio || 1, dprCap) * renderScale;
+  if (resCap > 0){
+    const longEdge = Math.max(w, h) * dpr;
+    if (longEdge > resCap) dpr *= resCap / longEdge;
+  }
   renderer.setPixelRatio(dpr); renderer.setSize(w, h, false);
   composer.setPixelRatio(dpr); composer.setSize(w, h);
   bloom.setSize(w * dpr, h * dpr);
@@ -2423,24 +2587,9 @@ renderer.setAnimationLoop(() => {
      had the same bug and did not know it: pause playback, drag an arm, and she
      folded in half within a couple of seconds. The bracket covers her spine and
      arms as well as the legs, so that is fixed too. */
-  if (BLOCK.balance) BLOCK.balance.api.balRestore();
-  if (mixer && timeScale > 0){
-    mixer.update(dt * timeScale);
-    if (shuffle && baseActions.size > 1){
-      shuffleAcc += dt * timeScale;
-      if (shuffleAcc >= shuffleEvery){
-        shuffleAcc = 0;
-        const pool = [...baseActions.keys()].filter(n => n.startsWith('Idle_') &&
-                     baseActions.get(n) !== current);
-        /* Which idle she drifts into is a disposition, not a coin toss — shy
-           and sides when she has gone quiet, sway and hair when she is up. */
-        if (pool.length)
-          playBase(BLOCK.mood ? BLOCK.mood.api.moodClip(pool)
-                              : pool[(Math.random() * pool.length) | 0]);
-      }
-    }
-  }
-  if (BLOCK.balance) BLOCK.balance.api.balCapture();
+  /* Which idle she drifts into is a disposition, not a coin toss — shy and
+     sides when she has gone quiet, sway and hair when she is up. That now lives
+     in stepSim() with the rest of the simulation. */
   /* Layer order, and every step of it is load-bearing:
        base clip -> additive layers   (the mixer, above, inside the bracket)
        grab                            runtime override, the arm you are holding
@@ -2462,16 +2611,19 @@ renderer.setAnimationLoop(() => {
        jiggle                          physics, and it reads the head the gaze wrote
        hair                            last, because it reads everything above
        balFollow                       the camera, after she has finished moving */
+  /* Hunger is a seven-minute clock, so it takes the real frame time and does
+     not care about jitter. */
   updateNeeds(dt);
-  applyGrab(dt);
-  if (BLOCK.twist) BLOCK.twist.apply(dt);
-  if (BLOCK.balance) BLOCK.balance.apply(dt);
-  if (BLOCK.gaze) BLOCK.gaze.apply(dt);
-  if (BLOCK.mood) BLOCK.mood.apply(dt);
-  if (BLOCK.face) BLOCK.face.apply(dt);
-  applyJiggle(dt);
+  if (SIM.on){
+    simAcc = Math.min(simAcc + dt, SIM.step * SIM.max);
+    simSteps = 0;
+    while (simAcc >= SIM.step && simSteps < SIM.max){
+      stepSim(SIM.step); simAcc -= SIM.step; simSteps++;
+    }
+  } else {
+    stepSim(Math.min(dt, 0.1)); simSteps = 1;
+  }
   fadeBaked();
-  if (BLOCK.hair) BLOCK.hair.apply(dt);
   /* The camera follow used to live inside the mixer block. It has to run after
      the balance pass, because she may have walked during it, and it has to run
      whether or not a clip is playing — that block only ran while the mixer was
@@ -2505,6 +2657,102 @@ renderer.setAnimationLoop(() => {
   }
 });
 canvas.addEventListener('wheel', e => e.preventDefault(), { passive:false });
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+(function attach(tries){
+  const S = window.__stage;
+  if (!S || !S.controls){
+    if (tries < 300) setTimeout(() => attach(tries + 1), 100);
+    return;
+  }
+  const canvas = document.getElementById('stage');
+  const controls = S.controls, camera = S.camera;
+
+  /* Two fingers on a phone, middle-drag on a desktop — the wheel already
+     dollies, and the right button belongs to her flesh. Screen-space panning
+     because in a vertical frame up should mean up. */
+  controls.enablePan = true;
+  controls.screenSpacePanning = true;
+  controls.panSpeed = 0.9;
+  if (controls.touches) controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+  if (controls.mouseButtons) controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+
+  /* The follow drives target.x back to her hip every frame, so a sideways
+     pivot decays unless it yields. Panning is deliberate: let it win, and
+     visibly — the panel's toggle goes off and can be put back. */
+  function yieldFollow(){
+    const t = document.getElementById('followRoot');
+    if (t && t.checked){
+      t.checked = false;
+      t.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+  canvas.addEventListener('touchstart',
+    (e) => { if (e.touches.length > 1) yieldFollow(); }, { passive: true });
+  canvas.addEventListener('pointerdown',
+    (e) => { if (e.button === 1) yieldFollow(); }, true);
+
+  /* Double-tap puts the pivot on whatever is under the finger. The camera
+     translates by the same delta instead of re-aiming, so the view does not
+     swing — the point simply arrives at the centre, and the orbit is now
+     around her jaw, or her knee, or wherever was asked for. */
+  const rc = new THREE.Raycaster();
+  let anim = null;
+  function pivotAt(ev){
+    if (!S.charRoot) return;
+    const r = S.pointerRay(ev);
+    rc.ray.copy(r.ray || r);        // pointerRay hands back shared scratch
+    rc.far = 60;
+    const hit = rc.intersectObject(S.charRoot, true)
+                  .find(h => h.object.visible && h.object.isMesh);
+    if (!hit) return;
+    const from = controls.target.clone();
+    const delta = hit.point.clone().sub(from);
+    if (Math.abs(delta.x) > 0.02) yieldFollow();
+    anim = { t: 0, from, delta, camFrom: camera.position.clone() };
+  }
+  /* Not dblclick: the grab handler calls preventDefault on pointerdown, and
+     that suppresses the compatibility mouse events, so dblclick never arrives
+     when the tap lands on her — which is the only place it matters. Pair the
+     taps by hand, in the capture phase, for finger and mouse alike. A tap that
+     travelled more than 10 px was a drag and resets the pair. */
+  canvas.addEventListener('dblclick', pivotAt);
+
+  let lastTap = 0, lastXY = null, downXY = null;
+  canvas.addEventListener('pointerdown', (ev) => {
+    downXY = [ev.clientX, ev.clientY];
+  }, true);
+  canvas.addEventListener('pointerup', (ev) => {
+    if (ev.button) return;                      // left button, or a finger
+    const d = downXY; downXY = null;
+    if (!d) return;
+    if (Math.hypot(ev.clientX - d[0], ev.clientY - d[1]) > 10){ lastTap = 0; return; }
+    const now = performance.now();
+    const near = lastXY && Math.hypot(ev.clientX - lastXY[0],
+                                      ev.clientY - lastXY[1]) < 28;
+    if (now - lastTap < 340 && near){ lastTap = 0; pivotAt(ev); }
+    else { lastTap = now; lastXY = [ev.clientX, ev.clientY]; }
+  }, true);
+
+  /* Its own rAF: the render loop belongs to the viewer and this has no hook
+     into it. 0.26 s, smoothstepped, so it reads as a move and not a cut. */
+  (function tick(now){
+    requestAnimationFrame(tick);
+    if (!anim) return;
+    if (anim.t0 === undefined) anim.t0 = now;
+    const u = Math.min(1, (now - anim.t0) / 260);   // wall clock, not frames:
+    const e = u * u * (3 - 2 * u);                  // 0.26 s at 8 fps as at 120
+    controls.target.copy(anim.from).addScaledVector(anim.delta, e);
+    camera.position.copy(anim.camFrom).addScaledVector(anim.delta, e);
+    if (u >= 1) anim = null;
+  })();
+
+  window.__pivot = { at: pivotAt, yieldFollow,
+                     get target(){ return controls.target.toArray(); } };
+})(0);
 </script>
 
 </body></html>
