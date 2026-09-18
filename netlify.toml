@@ -38,3 +38,15 @@
   for = "/js/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# The phone tiers live in their own directories; they are as immutable as the
+# full-size set they were made from.
+[[headers]]
+  for = "/mid/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/lo/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

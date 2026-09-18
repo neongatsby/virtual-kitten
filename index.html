@@ -57,8 +57,25 @@
   .rail.clips{overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth;}
   .rail.clips::-webkit-scrollbar{display:none;}
   .rail.clips button{flex:none;}
-  .rail.frame{opacity:.72;}
-  .rail.frame button{font-size:9.5px;padding:6px 11px;}
+  .rail.food{opacity:.95;gap:3px;}
+  .rail.food button{font-size:9.5px;padding:7px 12px;cursor:grab;touch-action:none;}
+  .rail.food button:active{cursor:grabbing;}
+  .rail.food button.armed{background:rgba(127,184,138,.20);color:#8FC79A;}
+  #ghost{position:fixed;z-index:9;pointer-events:none;transform:translate(-50%,-50%);
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--clay);background:var(--panel);
+    border:1px solid var(--clay-dim);border-radius:999px;padding:6px 11px;
+    backdrop-filter:blur(10px);opacity:0;transition:opacity .12s ease;}
+  #ghost.on{opacity:1;}
+  #ghost.hot{background:rgba(127,184,138,.22);border-color:#8FC79A;color:#8FC79A;}
+  .feel{display:flex;flex-direction:column;gap:2px;margin-top:5px;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
+    letter-spacing:.05em;color:var(--ink-faint);font-variant-numeric:tabular-nums;}
+  .feel b{font-weight:600;color:var(--clay);letter-spacing:.14em;}
+  .feel .bar{width:132px;height:3px;border-radius:2px;background:var(--hair);overflow:hidden;}
+  .feel .bar i{display:block;height:100%;width:0%;background:var(--clay);
+    transition:width .3s ease,background .3s ease;}
+  .feel .bar.hot i{background:var(--warn);}
   .rail button{
     appearance:none;border:0;background:transparent;color:var(--ink-faint);white-space:nowrap;
     font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
@@ -198,6 +215,12 @@
     <div class="mark">
       <b>Companion Stage</b>
       <span class="sub mono" id="assetLine">loading…</span>
+      <div class="feel" id="feel" hidden>
+        <span><b id="feelTable">—</b> <span id="feelVA"></span></span>
+        <span id="feelFace"></span>
+        <span id="feelHungerTxt">hunger —</span>
+        <span class="bar" id="feelHungerBar"><i></i></span>
+      </div>
     </div>
     <div class="readout mono">
       <span><i id="fps">—</i> fps</span>
@@ -207,12 +230,7 @@
   </div>
 
   <div class="rails">
-    <div class="rail frame" role="group" aria-label="Camera framing">
-      <button type="button" data-frame="full" aria-pressed="true">Full</button>
-      <button type="button" data-frame="three" aria-pressed="false">¾</button>
-      <button type="button" data-frame="bust" aria-pressed="false">Bust</button>
-      <button type="button" data-frame="close" aria-pressed="false">Close</button>
-    </div>
+    <div class="rail food" id="foodRail" role="group" aria-label="Food"></div>
     <div class="rail clips" id="clipRail" role="group" aria-label="Animation clips"></div>
   </div>
 
@@ -266,14 +284,26 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
    the browser's module loader, not by the LoadingManager that stamps every
    other asset, so without it a corrected block is indistinguishable from the
    old one to the cache — the exact failure BUILD_ID exists to prevent. */
-import { install as installFace } from './js/face.js?b=36';
-import { install as installGaze } from './js/gaze.js?b=36';
-import { install as installHair } from './js/hair.js?b=36';
-import { install as installTwist } from './js/twist.js?b=36';
-import { install as installBalance } from './js/balance.js?b=36';
-import { install as installMood } from './js/mood.js?b=36';
+import { install as installFace } from './js/face.js?b=37';
+import { install as installGaze } from './js/gaze.js?b=37';
+import { install as installHair } from './js/hair.js?b=37';
+import { install as installTwist } from './js/twist.js?b=37';
+import { install as installBalance } from './js/balance.js?b=37';
+import { install as installMood } from './js/mood.js?b=37';
 
-const CHAR_URL  = 'companion.json';
+/* Texture tier. Nine of her maps are 4096 square, which is ~1.27 GB of VRAM
+   once decompressed with mipmaps — a desktop GPU shrugs, iOS Safari kills the
+   tab and retries, which reads as "a problem repeatedly occurred". So a phone
+   gets the 2048/1024 set (~285 MB) unless the query string says otherwise:
+      ?tex=hi   as authored        ?tex=mid  the phone set
+      ?tex=lo   1024/512, ~71 MB — the fallback if mid still dies          */
+const TEX_ASK = (new URLSearchParams(location.search).get('tex') || '').toLowerCase();
+const TEX_COARSE = (window.matchMedia && matchMedia('(pointer: coarse)').matches)
+                || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const TEX_TIER = ['hi','mid','lo'].indexOf(TEX_ASK) >= 0 ? TEX_ASK
+               : (TEX_COARSE ? 'mid' : 'hi');
+const CHAR_URL  = TEX_TIER === 'hi' ? 'companion.json'
+                                    : 'companion-' + TEX_TIER + '.json';
 const CLIPS_URL = 'clips.json';
 const $ = (id) => document.getElementById(id);
 const boot = $('boot'), bootMsg = $('bootMsg'), bootBar = $('bootBar');
@@ -528,7 +558,7 @@ manager.onProgress = (url, loaded, total) => setProgress(loaded / Math.max(total
    indistinguishable from the old one as far as the browser cache is concerned —
    a rebuild can land and show absolutely nothing. Stamp every request with the
    build id and a stale copy cannot be served. Bump BUILD_ID on any asset change. */
-const BUILD_ID = '36';
+const BUILD_ID = '37';
 manager.setURLModifier(u =>
   (/^(data|blob):/.test(u) || u.includes('?')) ? u : u + '?b=' + BUILD_ID);
 
@@ -1342,11 +1372,156 @@ function start(){
   $('assetLine').textContent =
     `${subjectHeight.toFixed(2)} m · ${charRoot.userData.tris.toLocaleString()} tris · ` +
     `${baseActions.size + addActions.size} clips`;
+  registerFoodEvents();
   buildRail();
+  buildFoodRail();
   buildPanels();
+  refreshFeel();
+  setInterval(refreshFeel, 250);
   if (current) markRail(current.getClip().name);
   setProgress(1);
   setTimeout(() => boot.classList.add('gone'), 260);
+}
+
+/* ── hunger, and feeding her ──────────────────────────────────────────────
+   A fourth clock, slower than the three the mood block already runs, and the
+   first one you can move directly: everything else she feels is downstream of
+   being touched or hauled about.
+
+   `rate` is per second, so the default is a full stomach to empty in seven
+   minutes — fast enough to watch, and a slider because that is a by-feel
+   number.
+
+   ⚠ `hungry` is a RATE event and is fed `× dt`. mood-notes §6: rate events must
+   arrive per second. The first version of `drag` was fed 0.06 per second where
+   real dragging feeds about 1.0, was under by seventeen times, and that was half
+   of why ninety seconds of hauling her about came back PLAYFUL. */
+const NEEDS = { on: true, hunger: 0.30, rate: 1/420, thresh: 0.55 };
+
+/* `fills` is how much of the hunger it takes away; `joy` and `calm` are scales
+   on two events the mood table already has, rather than a third. A scale drives
+   valence and arousal together, so one event cannot say "pleasant AND calming" —
+   but `fed` plus `settled` can, and in the proportions each food deserves. */
+const FOOD = [
+  { id:'water', label:'Water', fills:0.14, joy:0.30, calm:0.75 },
+  { id:'apple', label:'Apple', fills:0.34, joy:0.60, calm:0.30 },
+  { id:'bowl',  label:'Bowl',  fills:0.62, joy:0.50, calm:0.55 },
+  { id:'cake',  label:'Cake',  fills:0.26, joy:1.00, calm:0.05 },
+];
+
+function registerFoodEvents(){
+  if (!BLOCK.mood) return;
+  const EV = BLOCK.mood.api.MOOD_EV;
+  /* Added to the table rather than written into the block: the table is data and
+     the block hands it out, so this needs no edit to another session's file. */
+  if (!EV.fed) EV.fed = { v: +0.34, a: +0.12, k: 'i', f: 'fed' };
+  /* No fatigue class on `hungry`: habituating to your own hunger is not a thing
+     a body does, and a class would quietly switch it off after a few minutes —
+     which is exactly the bug that made `stumble` unreachable. */
+  if (!EV.hungry) EV.hungry = { v: -0.11, a: -0.05, k: 'r', f: null };
+}
+
+function feedHer(item){
+  if (!item) return;
+  NEEDS.hunger = Math.max(0, NEEDS.hunger - item.fills);
+  const M = BLOCK.mood && BLOCK.mood.api;
+  if (M){
+    /* Her face is NOT triggered here. The mood block is the only thing in the
+       build that fires an expression, and it decides what being fed looks like
+       from where she already was — which is the whole point of the contrast
+       mechanic. Feeding her after a rough patch should land harder. */
+    M.moodEvent('fed', item.joy);
+    if (item.calm > 0) M.moodEvent('settled', item.calm);
+  }
+  refreshFeel();
+}
+
+function updateNeeds(dt){
+  if (!NEEDS.on) return;
+  NEEDS.hunger = Math.min(1, NEEDS.hunger + dt * NEEDS.rate);
+  if (BLOCK.mood && NEEDS.hunger > NEEDS.thresh){
+    const bite = (NEEDS.hunger - NEEDS.thresh) / (1 - NEEDS.thresh);
+    BLOCK.mood.api.moodEvent('hungry', bite * dt);
+  }
+}
+
+/* ── the tray ─────────────────────────────────────────────────────────────
+   Pointer events rather than HTML drag-and-drop: `dragstart` does not fire on
+   touch, and half the platforms this is for are phones. Pick a chip up, drag it
+   over her, let go. The ghost turns green when you are over her, so there is no
+   guessing where the drop lands. */
+let carrying = null;
+function buildFoodRail(){
+  const rail = $('foodRail');
+  if (!rail) return;
+  rail.innerHTML = '';
+  for (const item of FOOD){
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.food = item.id; b.textContent = item.label;
+    b.title = `${item.label} — fills ${Math.round(item.fills*100)}%`;
+    b.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      carrying = item;
+      b.classList.add('armed');
+      try { b.setPointerCapture(ev.pointerId); } catch (e) {}
+      moveGhost(ev.clientX, ev.clientY);
+    });
+    b.addEventListener('pointermove', (ev) => { if (carrying) moveGhost(ev.clientX, ev.clientY); });
+    b.addEventListener('pointerup', (ev) => {
+      if (!carrying) return;
+      const hot = overHer(ev.clientX, ev.clientY);
+      if (hot) feedHer(carrying);
+      carrying = null;
+      b.classList.remove('armed');
+      hideGhost();
+      try { if (b.hasPointerCapture(ev.pointerId)) b.releasePointerCapture(ev.pointerId); } catch (e) {}
+    });
+    b.addEventListener('pointercancel', () => { carrying = null; b.classList.remove('armed'); hideGhost(); });
+    rail.appendChild(b);
+  }
+}
+const _fp = new THREE.Vector3();
+function overHer(cx, cy){
+  if (!charRoot) return false;
+  /* Her chest projected to the screen, with a generous radius scaled to the
+     viewport — a finger on a phone is not a mouse pointer. */
+  subject.getWorldPosition(_fp); _fp.y += 1.05;
+  _fp.project(camera);
+  const r = canvas.getBoundingClientRect();
+  const sx = r.left + (_fp.x * 0.5 + 0.5) * r.width;
+  const sy = r.top + (-_fp.y * 0.5 + 0.5) * r.height;
+  const reach = Math.max(90, Math.min(r.width, r.height) * 0.26);
+  return Math.hypot(cx - sx, cy - sy) < reach && _fp.z < 1;
+}
+let ghostEl = null;
+function moveGhost(x, y){
+  if (!ghostEl){
+    ghostEl = document.createElement('div');
+    ghostEl.id = 'ghost';
+    document.body.appendChild(ghostEl);
+  }
+  ghostEl.textContent = carrying ? carrying.label : '';
+  ghostEl.style.left = x + 'px'; ghostEl.style.top = y + 'px';
+  ghostEl.classList.add('on');
+  ghostEl.classList.toggle('hot', overHer(x, y));
+}
+function hideGhost(){ if (ghostEl) ghostEl.classList.remove('on', 'hot'); }
+
+/* ── the read-out ───────────────────────────────────────────────────────── */
+function refreshFeel(){
+  const box = $('feel');
+  if (!box || !BLOCK.mood) return;
+  box.hidden = false;
+  const r = BLOCK.mood.api.moodReadout();
+  const X = BLOCK.mood.api.MOODX;
+  $('feelTable').textContent = X.table;
+  $('feelVA').textContent = `v ${X.v >= 0 ? '+' : ''}${X.v.toFixed(2)}  a ${X.a >= 0 ? '+' : ''}${X.a.toFixed(2)}`;
+  $('feelFace').textContent = r.line2;
+  const h = Math.round(NEEDS.hunger * 100);
+  $('feelHungerTxt').textContent = `hunger ${h}%` + (NEEDS.hunger > NEEDS.thresh ? '  — she wants feeding' : '');
+  const bar = $('feelHungerBar');
+  bar.classList.toggle('hot', NEEDS.hunger > NEEDS.thresh);
+  bar.firstElementChild.style.width = h + '%';
 }
 
 function applyGrab(dt){
@@ -1562,6 +1737,9 @@ addEventListener('pointercancel', endGrab, true);
 
 window.__stage = { GRAB, JIG, CHAINS, JIGGLE, jigState, bones, camera, controls,
                    BLOCK, addBase,
+                   /* the needs loop, so a probe can starve her and feed her
+                      without going through the DOM */
+                   NEEDS, FOOD, feedHer, updateNeeds, refreshFeel, overHer,
                    playBase: (n) => playBase(n), pickChain, pickSoft, pickAny, pointerRay,
                    segHit, solveArm, applyJiggle, ray: _ray,
                    get mixer(){ return mixer; }, baseActions,
@@ -1723,6 +1901,32 @@ function buildPanels(){
     slider(mb,'shuffleEvery','Shuffle every',5,40,1,15,v=>Math.round(v)+'s',v=>{ shuffleEvery=v; });
     toggle(mb,'followRoot','Follow her when she moves',true,v=>{ followRoot=v; });
     mb.appendChild(el('p','note','Pick a clip from the rail at the bottom. Shuffle drifts between the idles on its own so you can watch the transitions. Pace carries real root motion — the camera pans with her.'));
+  }
+
+  /* — Needs — */
+  {
+    const nb = section('Needs', true);
+    nb.appendChild(el('p','note','Hunger is a fourth clock, slower than the three '
+      + 'the mood block runs, and the only one you move directly rather than by '
+      + 'handling her. Past the threshold it feeds a steady negative into her '
+      + 'mood, so she goes quiet on you before she looks unhappy about it. '
+      + 'Drag something off the tray onto her to fix that \u2014 the drop marker '
+      + 'turns green when you are over her.'));
+    toggle(nb,'needsOn','Hunger runs',NEEDS.on,v=>{ NEEDS.on=v; });
+    slider(nb,'needsNow','Hunger now',0,1,.01,NEEDS.hunger,v=>Math.round(v*100)+'%',
+           v=>{ NEEDS.hunger=v; refreshFeel(); });
+    slider(nb,'needsRate','Empty from full in',60,1800,10,1/NEEDS.rate,
+           v=>(v/60).toFixed(1)+' min',v=>{ NEEDS.rate=1/v; });
+    slider(nb,'needsThresh','Starts to bother her at',0.1,0.95,.01,NEEDS.thresh,
+           v=>Math.round(v*100)+'%',v=>{ NEEDS.thresh=v; refreshFeel(); });
+    const fb = el('div','actions');
+    for (const item of FOOD){
+      const c = el('button','chip',item.label); c.type='button';
+      c.addEventListener('click', () => feedHer(item));
+      fb.appendChild(c);
+    }
+    nb.appendChild(el('p','note','Or feed her from here, without the drag:'));
+    nb.appendChild(fb);
   }
 
   /* — Touch — */
@@ -2168,12 +2372,10 @@ function buildPanels(){
 }
 
 /* ───────────────────────── chrome wiring ───────────────────────── */
-document.querySelectorAll('.rail.frame button').forEach(bn => {
-  bn.addEventListener('click', () => {
-    document.querySelectorAll('.rail.frame button').forEach(o => o.setAttribute('aria-pressed', String(o === bn)));
-    applyFrame(bn.dataset.frame, false);
-  });
-});
+/* The framing rail is gone. `applyFrame` and FRAMES stay: frameSubject calls
+   applyFrame for the opening shot, and in the room build its body is patched so
+   the presets orbit HER rather than the world origin. What went is the control,
+   not the framing — orbit and pan do this better once there is a room. */
 const drawer = $('drawer'), openBtn = $('openDrawer');
 const setDrawer = (open) => { drawer.classList.toggle('open', open); openBtn.setAttribute('aria-expanded', String(open)); };
 openBtn.addEventListener('click', () => setDrawer(!drawer.classList.contains('open')));
@@ -2260,6 +2462,7 @@ renderer.setAnimationLoop(() => {
        jiggle                          physics, and it reads the head the gaze wrote
        hair                            last, because it reads everything above
        balFollow                       the camera, after she has finished moving */
+  updateNeeds(dt);
   applyGrab(dt);
   if (BLOCK.twist) BLOCK.twist.apply(dt);
   if (BLOCK.balance) BLOCK.balance.apply(dt);
