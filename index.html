@@ -1,0 +1,2307 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Companion Stage</title><style>:root{color-scheme:light}html,body{margin:0;height:100%;overscroll-behavior:none;background:#faf9f5;color:#141413;font:14px -apple-system,BlinkMacSystemFont,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Companion Stage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root{
+    --ground:#0C0D10; --panel:rgba(18,20,24,.88); --panel-solid:#121418;
+    --hair:#2B2F36; --hair-soft:#20242A;
+    --ink:#EDEAE6; --ink-dim:#A3A8B0; --ink-faint:#6D737C;
+    --clay:#D08B6B; --clay-dim:#8C5F49; --warn:#D8A657;
+    color-scheme: dark;
+  }
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:"Archivo","Helvetica Neue",Helvetica,Arial,sans-serif;
+    overflow:hidden; overscroll-behavior:none; -webkit-font-smoothing:antialiased;
+  }
+  *{box-sizing:border-box;}
+  #app{position:fixed;inset:0;}
+  #stage{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;}
+  #stage.grabbable{cursor:grab;}
+  #stage.grabbing{cursor:grabbing;}
+  #vignette{
+    position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(118% 76% at 50% 42%, rgba(0,0,0,0) 40%, rgba(0,0,0,.4) 79%, rgba(0,0,0,.7) 100%);
+    mix-blend-mode:multiply;
+  }
+
+  .hud{
+    position:absolute;left:0;right:0;top:0;display:flex;align-items:flex-start;
+    justify-content:space-between;gap:12px;padding:14px 16px;
+    padding-top:calc(14px + env(safe-area-inset-top,0px));pointer-events:none;
+  }
+  .mark{display:flex;flex-direction:column;gap:3px;}
+  .mark b{font-weight:600;font-size:13px;letter-spacing:.14em;text-transform:uppercase;}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .sub{font-size:10.5px;letter-spacing:.08em;color:var(--ink-faint);font-variant-numeric:tabular-nums;}
+  .readout{display:flex;gap:13px;align-items:baseline;font-size:10.5px;letter-spacing:.06em;
+    color:var(--ink-faint);font-variant-numeric:tabular-nums;text-align:right;}
+  .readout i{font-style:normal;color:var(--ink-dim);}
+
+  .rails{
+    position:absolute;left:0;right:0;
+    bottom:calc(16px + env(safe-area-inset-bottom,0px));
+    display:flex;flex-direction:column;align-items:center;gap:6px;
+    padding:0 68px 0 16px;z-index:3;pointer-events:none;
+  }
+  .rail{
+    display:flex;gap:2px;padding:3px;background:var(--panel);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid var(--hair-soft);border-radius:999px;
+    max-width:100%;pointer-events:auto;
+  }
+  .rail.clips{overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth;}
+  .rail.clips::-webkit-scrollbar{display:none;}
+  .rail.clips button{flex:none;}
+  .rail.frame{opacity:.72;}
+  .rail.frame button{font-size:9.5px;padding:6px 11px;}
+  .rail button{
+    appearance:none;border:0;background:transparent;color:var(--ink-faint);white-space:nowrap;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
+    letter-spacing:.1em;text-transform:uppercase;padding:8px 13px;border-radius:999px;
+    cursor:pointer;transition:color .18s ease,background .18s ease;
+  }
+  .rail button:hover{color:var(--ink-dim);}
+  .rail button[aria-pressed="true"]{background:rgba(208,139,107,.16);color:var(--clay);}
+  .rail.clips button[data-kind="move"][aria-pressed="true"]{background:rgba(127,184,138,.18);color:#8FC79A;}
+
+  .disc{
+    position:absolute;right:16px;bottom:calc(18px + env(safe-area-inset-bottom,0px));
+    width:44px;height:44px;border-radius:50%;display:grid;place-items:center;cursor:pointer;
+    background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid var(--hair-soft);color:var(--ink-dim);z-index:4;
+    transition:color .18s ease,border-color .18s ease;
+  }
+  .disc:hover{color:var(--ink);border-color:var(--hair);}
+  .disc svg{width:18px;height:18px;display:block;}
+
+  #drawer{
+    position:absolute;top:0;right:0;bottom:0;width:340px;background:var(--panel);
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border-left:1px solid var(--hair-soft);
+    transform:translateX(100%);transition:transform .3s cubic-bezier(.22,.7,.3,1);
+    overflow-y:auto;overscroll-behavior:contain;z-index:5;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));
+  }
+  #drawer.open{transform:translateX(0);}
+  .drawer-head{
+    position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;
+    gap:8px;padding:16px 18px 12px;
+    background:linear-gradient(to bottom,var(--panel-solid) 74%,rgba(18,20,24,0));
+  }
+  .drawer-head h2{margin:0;font-size:11px;font-weight:600;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--ink-dim);}
+  .x{appearance:none;border:0;background:transparent;color:var(--ink-faint);cursor:pointer;
+    font-size:18px;line-height:1;padding:4px 6px;border-radius:6px;}
+  .x:hover{color:var(--ink);}
+
+  details{border-top:1px solid var(--hair-soft);}
+  summary{
+    list-style:none;cursor:pointer;padding:11px 18px;display:flex;align-items:center;gap:8px;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9.5px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--clay-dim);transition:color .15s ease;
+  }
+  summary::-webkit-details-marker{display:none;}
+  summary:hover{color:var(--clay);}
+  summary::before{content:"+";font-size:12px;width:9px;color:var(--ink-faint);}
+  details[open] > summary::before{content:"–";}
+  details[open] > summary{color:var(--clay);}
+  .body{padding:2px 18px 16px;display:flex;flex-direction:column;gap:10px;}
+
+  .row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:3px 10px;}
+  .row label{font-size:11.5px;color:var(--ink-dim);}
+  .row .val{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
+    color:var(--ink-faint);font-variant-numeric:tabular-nums;}
+  .row input[type=range]{grid-column:1 / -1;}
+
+  input[type=range]{appearance:none;-webkit-appearance:none;width:100%;height:16px;
+    background:transparent;cursor:pointer;margin:0;}
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--hair);border-radius:2px;}
+  input[type=range]::-moz-range-track{height:2px;background:var(--hair);border-radius:2px;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;
+    border-radius:50%;background:var(--ink-dim);margin-top:-4.5px;border:0;transition:background .15s ease;}
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;
+    background:var(--ink-dim);border:0;}
+  input[type=range]:hover::-webkit-slider-thumb{background:var(--clay);}
+  input[type=range]:hover::-moz-range-thumb{background:var(--clay);}
+  input[type=range]:focus-visible{outline:2px solid var(--clay);outline-offset:4px;border-radius:4px;}
+
+  input[type=color]{
+    -webkit-appearance:none;appearance:none;width:34px;height:20px;padding:0;
+    border:1px solid var(--hair);border-radius:5px;background:transparent;cursor:pointer;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper{padding:2px;}
+  input[type=color]::-webkit-color-swatch{border:0;border-radius:3px;}
+  input[type=color]::-moz-color-swatch{border:0;border-radius:3px;}
+
+  select,.filebtn{
+    width:100%;appearance:none;background:#0F1115;color:var(--ink);
+    border:1px solid var(--hair);border-radius:7px;padding:7px 10px;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;cursor:pointer;
+  }
+  select:focus-visible{outline:2px solid var(--clay);outline-offset:2px;}
+
+  .toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .toggle label{font-size:11.5px;color:var(--ink-dim);cursor:pointer;}
+  .switch{appearance:none;width:34px;height:19px;border-radius:999px;background:#22262C;
+    border:1px solid var(--hair);position:relative;cursor:pointer;transition:background .18s ease;flex:none;}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;
+    border-radius:50%;background:var(--ink-faint);transition:transform .18s ease,background .18s ease;}
+  .switch:checked{background:rgba(208,139,107,.28);border-color:var(--clay-dim);}
+  .switch:checked::after{transform:translateX(15px);background:var(--clay);}
+  .switch:focus-visible{outline:2px solid var(--clay);outline-offset:2px;}
+
+  .chip{appearance:none;border:1px solid var(--hair);background:#0F1115;color:var(--ink-faint);
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.06em;
+    padding:7px 10px;border-radius:6px;cursor:pointer;text-transform:uppercase;
+    transition:color .15s ease,border-color .15s ease,background .15s ease;}
+  .chip:hover{color:var(--ink-dim);border-color:var(--hair);}
+  .actions{display:flex;gap:6px;}
+  .actions .chip{flex:1;text-align:center;}
+  .note{font-size:10.5px;line-height:1.55;color:var(--ink-faint);margin:0;}
+  .note code{font-family:"IBM Plex Mono",ui-monospace,monospace;color:var(--ink-dim);font-size:10px;}
+
+  #boot{position:absolute;inset:0;z-index:8;display:grid;place-items:center;
+    background:var(--ground);transition:opacity .6s ease;}
+  #boot.gone{opacity:0;pointer-events:none;}
+  .boot-inner{display:flex;flex-direction:column;align-items:center;gap:14px;
+    max-width:min(430px,84vw);text-align:center;padding:0 16px;}
+  .bar{width:170px;height:2px;background:var(--hair-soft);border-radius:2px;overflow:hidden;}
+  .bar i{display:block;height:100%;width:0%;background:var(--clay);transition:width .3s ease;}
+  .boot-inner p{margin:0;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);}
+  .boot-inner .err{text-transform:none;letter-spacing:0;color:var(--warn);line-height:1.6;font-size:11.5px;}
+
+  @media (max-width:760px){
+    #drawer{top:auto;left:0;right:0;bottom:0;width:auto;max-height:68svh;
+      border-left:0;border-top:1px solid var(--hair);border-radius:16px 16px 0 0;
+      transform:translateY(100%);}
+    #drawer.open{transform:translateY(0);}
+    .drawer-head{border-radius:16px 16px 0 0;}
+    .rails{padding:0 58px 0 12px;}
+    .rail button{padding:8px 10px;font-size:10px;}
+    .disc{width:40px;height:40px;}
+  }
+  @media (prefers-reduced-motion:reduce){ #drawer,#boot,.rail button,.chip{transition:none;} }
+</style>
+
+<div id="app">
+  <canvas id="stage"></canvas>
+  <div id="vignette"></div>
+
+  <div class="hud">
+    <div class="mark">
+      <b>Companion Stage</b>
+      <span class="sub mono" id="assetLine">loading…</span>
+    </div>
+    <div class="readout mono">
+      <span><i id="fps">—</i> fps</span>
+      <span><i id="tris">—</i> tris</span>
+      <span><i id="calls">—</i> calls</span>
+    </div>
+  </div>
+
+  <div class="rails">
+    <div class="rail frame" role="group" aria-label="Camera framing">
+      <button type="button" data-frame="full" aria-pressed="true">Full</button>
+      <button type="button" data-frame="three" aria-pressed="false">¾</button>
+      <button type="button" data-frame="bust" aria-pressed="false">Bust</button>
+      <button type="button" data-frame="close" aria-pressed="false">Close</button>
+    </div>
+    <div class="rail clips" id="clipRail" role="group" aria-label="Animation clips"></div>
+  </div>
+
+  <button type="button" class="disc" id="openDrawer" aria-label="Open look controls" aria-expanded="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <path d="M4 7h10M18 7h2M4 17h4M12 17h8"/>
+      <circle cx="16" cy="7" r="2.1"/><circle cx="10" cy="17" r="2.1"/>
+    </svg>
+  </button>
+
+  <aside id="drawer" aria-label="Look controls">
+    <div class="drawer-head">
+      <h2>Look</h2>
+      <button type="button" class="x" id="closeDrawer" aria-label="Close controls">&times;</button>
+    </div>
+    <div id="panels"></div>
+  </aside>
+
+  <div id="boot">
+    <div class="boot-inner">
+      <p id="bootMsg">Loading character</p>
+      <div class="bar"><i id="bootBar"></i></div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"./_t/build/three.module.js",
+  "three/addons/":"./_t/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+/* The other sessions' portable blocks, wrapped as modules by
+   pipeline/wrap_blocks.py. The block text inside them is verbatim from its own
+   session's copy — hairlab/blocks/ for the first four, pipeline/balance.js for
+   the last — and those stay the source of truth; re-running the script is the
+   whole update path.
+
+   ⚠ The ?b= query has to be bumped with BUILD_ID below. These are fetched by
+   the browser's module loader, not by the LoadingManager that stamps every
+   other asset, so without it a corrected block is indistinguishable from the
+   old one to the cache — the exact failure BUILD_ID exists to prevent. */
+import { install as installFace } from './js/face.js?b=36';
+import { install as installGaze } from './js/gaze.js?b=36';
+import { install as installHair } from './js/hair.js?b=36';
+import { install as installTwist } from './js/twist.js?b=36';
+import { install as installBalance } from './js/balance.js?b=36';
+import { install as installMood } from './js/mood.js?b=36';
+
+const CHAR_URL  = 'companion.json';
+const CLIPS_URL = 'clips.json';
+const $ = (id) => document.getElementById(id);
+const boot = $('boot'), bootMsg = $('bootMsg'), bootBar = $('bootBar');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function kelvinToColor(k, target){
+  const t = k / 100; let r, g, b;
+  if (t <= 66){
+    r = 255;
+    g = 99.4708025861 * Math.log(t) - 161.1195681661;
+    b = t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  } else {
+    r = 329.698727446 * Math.pow(t - 60, -0.1332047592);
+    g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+    b = 255;
+  }
+  const c = (v) => Math.min(1, Math.max(0, v / 255));
+  return target.setRGB(c(r), c(g), c(b), THREE.SRGBColorSpace);
+}
+
+/* ───────────────────────── renderer ───────────────────────── */
+const canvas = $('stage');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, powerPreference:'high-performance' });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 0.49;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 0.03, 120);
+camera.position.set(0, 1.4, 3.0);
+
+const controls = new OrbitControls(camera, canvas);
+Object.assign(controls, {
+  enableDamping:true, dampingFactor:.055, enablePan:false,
+  minDistance:.28, maxDistance:8, rotateSpeed:.62, autoRotateSpeed:.35
+});
+controls.minPolarAngle = THREE.MathUtils.degToRad(48);
+controls.maxPolarAngle = THREE.MathUtils.degToRad(106);
+controls.target.set(0, 1.1, 0);
+
+/* ───────────────────────── environment ───────────────────────── */
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04);
+scene.environment = envRT.texture;
+scene.environmentIntensity = 0.18;
+scene.environmentRotation = new THREE.Euler(0, THREE.MathUtils.degToRad(62), 0);
+scene.backgroundRotation = new THREE.Euler(0, THREE.MathUtils.degToRad(62), 0);
+scene.backgroundBlurriness = 0.9;
+scene.backgroundIntensity = 0.5;
+
+const sweepU = {
+  uTop:{ value:new THREE.Color().setRGB(.013,.014,.019) },
+  uBottom:{ value:new THREE.Color().setRGB(.085,.082,.09) },
+  uPeak:{ value:.44 }
+};
+const sweep = new THREE.Mesh(
+  new THREE.SphereGeometry(50, 32, 24),
+  new THREE.ShaderMaterial({
+    side:THREE.BackSide, depthWrite:false, uniforms:sweepU,
+    vertexShader:`varying vec3 vP; void main(){ vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+    fragmentShader:`
+      varying vec3 vP; uniform vec3 uTop; uniform vec3 uBottom; uniform float uPeak;
+      void main(){
+        vec3 n = normalize(vP); float h = n.y*.5+.5;
+        vec3 c = mix(uBottom, uTop, smoothstep(0.,1.,pow(clamp(h,0.,1.),1.35)));
+        c += uBottom * smoothstep(.62,0.,distance(vec2(n.x,h), vec2(0.,uPeak))) * 1.3;
+        gl_FragColor = vec4(c,1.);
+      }`
+  })
+);
+sweep.frustumCulled = false;
+scene.add(sweep);
+
+/* ───────────────────────── three-point rig ───────────────────────── */
+const key  = new THREE.DirectionalLight(0xffffff, 0.90);
+const fill = new THREE.DirectionalLight(0xffffff, 4.60);
+const rim  = new THREE.DirectionalLight(0xffffff, 8.75);
+const rim2 = new THREE.DirectionalLight(0xffffff, 1.05);
+const kick = new THREE.DirectionalLight(0xffffff, 1.80);
+key.castShadow = true;
+/* 2048 over a 1.9 m subject is about a millimetre a texel, and an 18 mm normal
+   bias is enormous at that scale — it lifts contact shadows off the surface and
+   makes them slide when the geometry under them moves, which is most of what
+   reads as "something strange with the shadow" on a breast being lifted. */
+key.shadow.mapSize.set(4096, 4096);
+key.shadow.bias = -0.00018;
+key.shadow.normalBias = 0.0045;
+key.shadow.radius = 2.4;
+scene.add(key, key.target, fill, fill.target, rim, rim.target,
+          rim2, rim2.target, kick, kick.target);
+
+const rig = {
+  key:{ az:36, el:26, k:5600 }, fill:{ az:-58, el:12, k:7000 },
+  rim:{ az:167, el:38, k:6550 }, rim2:{ az:-146, el:22, k:8200 }, kick:{ az:-63, el:-14, k:4300 }
+};
+function place(l, s, d){
+  const a = THREE.MathUtils.degToRad(s.az), e = THREE.MathUtils.degToRad(s.el);
+  l.position.set(d*Math.cos(e)*Math.sin(a), d*Math.sin(e) + controls.target.y*.4, d*Math.cos(e)*Math.cos(a));
+  l.target.position.set(0, controls.target.y, 0);
+  l.target.updateMatrixWorld();
+}
+function refreshRig(){
+  place(key, rig.key, 4.2); place(fill, rig.fill, 4.6);
+  place(rim, rig.rim, 4.4);  place(rim2, rig.rim2, 4.4); place(kick, rig.kick, 3.2);
+  kelvinToColor(rig.key.k, key.color);
+  kelvinToColor(rig.fill.k, fill.color);
+  kelvinToColor(rig.rim.k, rim.color);
+  kelvinToColor(rig.rim2.k, rim2.color);
+  kelvinToColor(rig.kick.k, kick.color);
+}
+
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(5, 64).rotateX(-Math.PI/2),
+  new THREE.ShadowMaterial({ opacity:0.42 })
+);
+floor.receiveShadow = true;
+scene.add(floor);
+
+const refs = new THREE.Group(); refs.visible = false;
+{
+  const chrome = new THREE.Mesh(new THREE.SphereGeometry(.085,48,32),
+    new THREE.MeshPhysicalMaterial({ color:0xffffff, metalness:1, roughness:.04 }));
+  const grey = new THREE.Mesh(new THREE.SphereGeometry(.085,48,32),
+    new THREE.MeshStandardMaterial({ color:new THREE.Color().setRGB(.18,.18,.18,THREE.SRGBColorSpace), roughness:.9 }));
+  chrome.position.set(-.42,1.24,.2); grey.position.set(-.42,1.03,.2);
+  chrome.castShadow = grey.castShadow = true;
+  refs.add(chrome, grey);
+}
+scene.add(refs);
+
+/* ───────────────────────── post ───────────────────────── */
+const rt = new THREE.WebGLRenderTarget(1, 1, { type:THREE.HalfFloatType, samples:4 });
+const composer = new EffectComposer(renderer, rt);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1,1), 0.11, 0.12, 1.36);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+let usePost = true;
+
+/* ───────────────────────── material groups ───────────────────────── */
+const GROUPS = [
+  { id:'skin',  label:'Skin',      mats:['M_face','M_torso','M_arms','M_legs','M_genitalia','M_torsogen'], open:true,
+    keys:['color','roughness','normalScale','aoMapIntensity','clearcoat','clearcoatRoughness',
+          'sheen','sheenRoughness','sheenColor','specularIntensity','envMapIntensity'],
+    d:{ color:'#ffebe5', roughness:0.92, normalScale:0.10, aoMapIntensity:0.45,
+        clearcoat:0.22, clearcoatRoughness:0.265, sheen:0.60, sheenRoughness:0.18,
+        sheenColor:'#ffd6c6', specularIntensity:0.63, envMapIntensity:1.0 } },
+
+  { id:'eyes',  label:'Eyes',      mats:['M_eyes'],
+    keys:['color','roughness','clearcoat','clearcoatRoughness','envMapIntensity','emissiveIntensity'],
+    d:{ color:'#ffffff', roughness:0.0, clearcoat:1.0, clearcoatRoughness:0.0,
+        envMapIntensity:0.84, emissiveIntensity:0.01 } },
+
+  { id:'cornea',label:'Cornea',    mats:['M_CORNEA'],
+    keys:['opacity','roughness','clearcoat','ior','transmission'],
+    d:{ opacity:0.0, roughness:0.0, clearcoat:0.67, ior:1.44, transmission:0.09 } },
+
+  { id:'lashes',label:'Lashes',    mats:['M_lashes'],
+    keys:['color','roughness','opacity','sheen','sheenRoughness'],
+    d:{ color:'#000000', roughness:0.67, opacity:1.0, sheen:0.3, sheenRoughness:0.4 } },
+
+  { id:'hair',  label:'Hair',      mats:['M_hair','M_haircap'],
+    keys:['color','roughness','alphaTest','sheen','sheenRoughness','sheenColor','envMapIntensity'],
+    d:{ color:'#dbcfa3', roughness:0.37, alphaTest:0.055, sheen:0.61, sheenRoughness:0.30,
+        sheenColor:'#bb9d86', envMapIntensity:1.0 } },
+
+  { id:'mouth', label:'Mouth & teeth', mats:['M_mouth'],
+    keys:['color','roughness','clearcoat','clearcoatRoughness'],
+    d:{ color:'#ffffff', roughness:0.24, clearcoat:0.8, clearcoatRoughness:0.10 } },
+
+  { id:'cloth', label:'Stockings & straps', mats:['M_stockings','M_suspenders'],
+    keys:['color','roughness','opacity','sheen','sheenRoughness','transmission'],
+    d:{ color:'#ffffff', roughness:0.42, opacity:1.0, sheen:0.55, sheenRoughness:0.3, transmission:0 } },
+
+  { id:'shoes', label:'Shoes',     mats:['M_shoes'],
+    keys:['color','roughness','metalness','clearcoat','clearcoatRoughness'],
+    d:{ color:'#ffffff', roughness:0.165, metalness:0.0, clearcoat:0.18, clearcoatRoughness:0.235 } },
+
+  { id:'metal', label:'Jewellery', mats:['M_METAL_GOLD','M_METAL_STEEL'],
+    keys:['color','roughness','metalness','envMapIntensity'],
+    d:{ color:'#ffffff', roughness:0.08, metalness:1.0, envMapIntensity:1.52 } },
+];
+
+const CTRL = {
+  color:             { label:'Tint', type:'color' },
+  sheenColor:        { label:'Sheen tint', type:'color' },
+  roughness:         { label:'Roughness', min:0, max:1, step:.005 },
+  metalness:         { label:'Metalness', min:0, max:1, step:.01 },
+  normalScale:       { label:'Normal strength', min:0, max:3, step:.01 },
+  aoMapIntensity:    { label:'AO strength', min:0, max:2, step:.01 },
+  clearcoat:         { label:'Clearcoat', min:0, max:1, step:.01 },
+  clearcoatRoughness:{ label:'Clearcoat rough', min:0, max:1, step:.005 },
+  sheen:             { label:'Sheen', min:0, max:1, step:.01 },
+  sheenRoughness:    { label:'Sheen rough', min:0, max:1, step:.01 },
+  specularIntensity: { label:'Specular', min:0, max:2, step:.01 },
+  envMapIntensity:   { label:'Env response', min:0, max:3, step:.01 },
+  emissiveIntensity: { label:'Emissive', min:0, max:2, step:.01 },
+  opacity:           { label:'Opacity', min:0, max:1, step:.005 },
+  alphaTest:         { label:'Alpha cutoff', min:0, max:1, step:.005 },
+  transmission:      { label:'Transmission', min:0, max:1, step:.01 },
+  ior:               { label:'IOR', min:1, max:2.4, step:.01 },
+};
+
+const matsByName = new Map();
+
+function toPhysical(m){
+  const p = new THREE.MeshPhysicalMaterial({
+    name:m.name, color:m.color, map:m.map,
+    normalMap:m.normalMap, normalScale:m.normalScale ? m.normalScale.clone() : undefined,
+    aoMap:m.aoMap, aoMapIntensity:m.aoMapIntensity,
+    roughnessMap:m.roughnessMap, roughness:m.roughness,
+    metalnessMap:m.metalnessMap, metalness:m.metalness,
+    emissive:m.emissive, emissiveMap:m.emissiveMap, emissiveIntensity:m.emissiveIntensity,
+    alphaMap:m.alphaMap, transparent:m.transparent, opacity:m.opacity,
+    alphaTest:m.alphaTest, side:m.side, depthWrite:m.depthWrite,
+    envMapIntensity:m.envMapIntensity, toneMapped:true,
+  });
+  if (p.alphaTest > 0) p.alphaToCoverage = true;
+  if (p.transparent) p.depthWrite = false;
+  m.dispose();
+  return p;
+}
+
+function applyKey(mat, k, v){
+  if (k === 'normalScale'){ if (mat.normalScale) mat.normalScale.set(v, v); return; }
+  if (CTRL[k] && CTRL[k].type === 'color'){
+    if (!mat[k]) mat[k] = new THREE.Color();
+    mat[k].set(v); mat[k].convertSRGBToLinear?.();
+    return;
+  }
+  mat[k] = v;
+  if (k === 'alphaTest') mat.alphaToCoverage = v > 0;
+  if (k === 'transmission' && v > 0) mat.transparent = true;
+}
+
+/* ───────────────────────── loading ───────────────────────── */
+function setProgress(p, msg){
+  bootBar.style.width = Math.max(2, Math.round(p * 100)) + '%';
+  if (msg) bootMsg.textContent = msg;
+}
+function bootFail(msg){
+  bootMsg.className = 'err'; bootMsg.textContent = msg;
+  bootBar.parentElement.hidden = true;
+}
+
+const manager = new THREE.LoadingManager();
+manager.onProgress = (url, loaded, total) => setProgress(loaded / Math.max(total, 1));
+/* Every asset republishes under the same filename, so a corrected texture is
+   indistinguishable from the old one as far as the browser cache is concerned —
+   a rebuild can land and show absolutely nothing. Stamp every request with the
+   build id and a stale copy cannot be served. Bump BUILD_ID on any asset change. */
+const BUILD_ID = '36';
+manager.setURLModifier(u =>
+  (/^(data|blob):/.test(u) || u.includes('?')) ? u : u + '?b=' + BUILD_ID);
+
+const subject = new THREE.Group();
+scene.add(subject);
+let subjectHeight = 1.7;
+/* ── motion ──────────────────────────────────────────────────────────────
+   Base clips are whole-body poses that cross-fade between each other.
+   Add_* clips are additive layers that ride on top of whichever base is
+   playing, at their own weights — blinking, mouth idle and glancing around
+   are constants, not something to re-author into every clip.            */
+let mixer = null, clipList = null, charRoot = null;
+const baseActions = new Map(), addActions = new Map(), clipMeta = new Map();
+let current = null, fadeTime = 0.55, timeScale = 0.5;
+let hipBone = null, followRoot = true;
+const _fv = new THREE.Vector3();
+
+/* ── grab: runtime IK layered over the animation ─────────────────────────
+   This sits in the third slot of the stack — base clip, additive layers,
+   runtime override, physics. The mixer writes the animated pose every frame;
+   we snapshot it, solve the arm to the cursor, then slerp between the two by
+   a weight that ramps up on grab and springs back down on release.        */
+const GRAB = {
+  on: true, active: false, chain: null, weight: 0, releaseT: -1,
+  bodyPull: 0.55, returnTime: 0.90, stiffness: 165, damping: 21, wobble: 0.22,
+  pos: new THREE.Vector3(), vel: new THREE.Vector3(), desired: new THREE.Vector3(),
+  offset: new THREE.Vector3(), plane: new THREE.Plane(), armLen: 0.5,
+  poleRef: new THREE.Vector3(), lag: [0, 0, 0, 0],
+};
+/* Soft-tissue springs. Fat and muscle behave differently, so each region gets
+   its own gain, stiffness and travel: breast tissue is the softest and moves
+   most, glutes are firmer and move less, the belly barely at all. Thighs and
+   calves carry no jiggle bone — they are muscle. */
+/* Luca's settled values, found by feel in the Touch panel and measured after.
+   Chest and upper thigh are up; hips, belly and damping are where they were. */
+const JIG = { on: true, breast: 1.11, glute: 1.0, thigh: 1.25, belly: 0.30,
+              bulge: 0.0, damping: 1.0 };
+/* And his two grab multipliers. `reach` is not the redundant one it looks:
+   measured at 1.00, the CHEST is the only region whose ceiling binds — max
+   52 mm against a grip asymptote of 60 mm — so it was the one thing being cut
+   short, and 1.44 lifts it clear. On every other region the ceiling was already
+   slack and reach does nothing. `strength` is what actually moves the cheek. */
+/* 0.92 is LUCA'S, set by feel, and it stays his.
+
+   I raised it to 1.18 on the theory that he wanted more travel — he had asked
+   twice for the cheek to be more responsive — and that was wrong twice over.
+   131 mm of travel adds 50 faces over 40 degrees through the cleft where
+   102 mm adds almost none, so the cap raise bought the animation build's
+   TEARING without its concentration, which is the opposite of the trade he
+   wanted. Second time this session I have overridden a number he chose by feel
+   on a theory. Don't. */
+const GRAB_STRENGTH0 = 0.92, GRAB_REACH0 = 1.44;
+/* `axis` is a per-region anisotropy on the displacement, in world axes
+   (x = across her, y = up, z = the way she faces). Flesh does not travel
+   equally in every direction: a cheek slides sideways across the pelvis far
+   more readily than it sinks into it, so lateral gets gain and depth gets
+   cut. Without this a horizontal drag ends up pushing into the body. */
+/* `gain` is how much of the body's own acceleration the tissue actually feels.
+   1.0 is the honest base-excited oscillator: displacement settles near
+   a/(damping·ω), so a 1 m/s² bob through a chest tuned to ~1.8 Hz gives about a
+   centimetre of travel. It used to sit at 0.0012, which is why walking moved
+   nothing at all — three orders of magnitude of drive were being thrown away.
+   Firmer tissue is tethered harder, so it feels less of it.
+
+   `grip` is what your finger can do to it, and it is a FORCE, not a position.
+   Chasing the pointer with a position target and clamping the result is what
+   made a fast drag shoot out sideways and stop dead against an invisible wall.
+   Capping the force instead gives all three things a handful of flesh actually
+   does: it follows while you pull gently; it asymptotes once your pull is all
+   the restoring force can be balanced against — `force/stiffness` is exactly
+   where it settles, so that ratio is the number to tune; and when you outrun
+   it by more than `slip`, your fingers lose it and it drops. A fast yank
+   saturates the force immediately, so the flesh lags, snaps after you, and
+   overshoots — the impact read comes out of the same model rather than being a
+   special case. The saturation is a tanh rather than a clamp, so the knee is
+   soft: it goes from following you, to dragging, to not coming any further,
+   without a corner anywhere in it.
+
+   `axis` is anisotropic compliance, applied to the forces rather than to the
+   output: flesh slides across the body far more readily than it sinks in. */
+const REGION = {
+  breast: { stiffness: 128, damping: 9.5,  max: 0.052, gain: 1.00, swell: 0.10,
+            axis: [1.00, 1.00, 1.00], maxIn: 0.030,
+            grip: { k: 700, force: 7.7,  slip: Infinity } },  // ~60 mm, and it holds
+  // Slower and less damped than the chest, which is what "heavier" means: a
+  // bigger, lazier wobble on the way back rather than a quick one. `slip` is
+  // Infinity because you should be able to hold a hip and drag it anywhere —
+  // the tanh saturation alone decides how far it comes, and it only lets go
+  // when you do.
+  glute:  { stiffness: 95,  damping: 7.2,  max: 0.155, gain: 0.95, swell: 0.80,
+            axis: [1.35, 1.05, 0.70], maxIn: 0.025,
+            grip: { k: 700, force: 7.8,  slip: Infinity } },   // ~110 mm
+  thigh:  { stiffness: 150, damping: 10.5, max: 0.082, gain: 0.70, swell: 0.65,
+            axis: [1.20, 0.95, 0.70], maxIn: 0.020,
+            grip: { k: 700, force: 6.5,  slip: Infinity } },   // ~42 mm
+  // shares the thigh slider — one control for the whole leg
+  thighIn:{ slider: 'thigh',
+            stiffness: 175, damping: 11.5, max: 0.060, gain: 0.55, swell: 0.50,
+            axis: [1.10, 0.95, 0.80], maxIn: 0.016,
+            grip: { k: 700, force: 5.0,  slip: Infinity } },   // ~31 mm
+  belly:  { stiffness: 210, damping: 14.0, max: 0.022, gain: 0.50, swell: 0.0,
+            axis: [1.00, 1.00, 1.00], maxIn: 0.015,
+            grip: { k: 700, force: 3.8,  slip: 0.045 } },   // ~18 mm
+};
+/* Where the flesh is, as opposed to where its bone is — and how big a target it
+   makes. The pectoral bone sits against the ribcage, 12 cm behind the front of
+   the breast and 4 cm inboard of its centre, so picking on the bone meant a
+   grab aimed at the side of her chest scored worse than her forearm and the arm
+   won. Offsets are in her own frame (+X her left, +Y up, +Z her facing) and are
+   rotated with her.
+
+   `n` is the outward surface normal of the region, also in her frame. It does
+   two jobs. You can only pick flesh you are actually looking at, so a click
+   from the front no longer reaches through her and takes hold of a buttock.
+   And displacement is clamped along it, so nothing can be pushed further than
+   `maxIn` into the body — pulling a cheek across her used to sink it through
+   her hip. */
+const SOFT_PICK = {
+  lPectoral: { off: [ 0.050, -0.013, 0.120], r: 0.105, n: [ 0.34, 0.05,  0.94] },
+  rPectoral: { off: [-0.050, -0.013, 0.120], r: 0.105, n: [-0.34, 0.05,  0.94] },
+  jGluteL:   { off: [ 0.020,  0.010, 0.000], r: 0.135, n: [ 0.38, 0.06, -0.92] },
+  jGluteR:   { off: [-0.020,  0.010, 0.000], r: 0.135, n: [-0.38, 0.06, -0.92] },
+  jThighOL:  { off: [ 0.018,  0.000, 0.000], r: 0.105, n: [ 0.995, 0.00, 0.10] },
+  jThighOR:  { off: [-0.018,  0.000, 0.000], r: 0.105, n: [-0.995, 0.00, 0.10] },
+  jThighIL:  { off: [-0.014,  0.000, 0.010], r: 0.090, n: [-0.46, 0.00,  0.89] },
+  jThighIR:  { off: [ 0.014,  0.000, 0.010], r: 0.090, n: [ 0.46, 0.00,  0.89] },
+  jBelly:    { off: [ 0.000,  0.000, 0.020], r: 0.080, n: [ 0.00, 0.00,  1.00] },
+};
+/* [bone, driver, region, follow?] — `follow` is a list of
+   [bone, [lateral, up, depth], ripple] entries describing how this region is
+   coupled to another.
+
+   The per-axis gains are in HER frame and they matter: a leg widens when the
+   hip above it is pulled sideways, but it is not dragged *down* when the cheek
+   is pulled down — the femur is in the way. So lateral coupling is strong,
+   vertical is almost nothing.
+
+   `ripple` couples to the leader's velocity rather than its position, so it
+   contributes only while the leader is actually moving and fades to nothing
+   when it settles. That is the difference between flesh that shivers when
+   something next to it moves and flesh that hangs off it.
+
+   Order matters: a follower reads the already-displaced value of anything
+   listed before it this frame, and last frame's for anything after, which is
+   invisible at these gains. */
+const JIGGLE = [
+  ['lPectoral', 'chestUpper',   'breast'],
+  ['rPectoral', 'chestUpper',   'breast'],
+  ['jGluteL',   'pelvis',       'glute'],
+  ['jGluteR',   'pelvis',       'glute'],
+  // Each thigh is two regions, outer and inner. One bone per leg translated
+  // the whole cross section, so taking hold of the outside dragged the inside
+  // along with it. They are driven by the leg itself and chase the cheek above
+  // them — using the cheek as the driver too would double-count and let the
+  // pair resonate — and the inner side follows at less than half the outer.
+  ['jThighOL',  'lThighBend',   'thigh',   [['jGluteL',  [0.30, 0.04, 0.14], 6.0],
+                                             ['jThighIL', [0.12, 0.05, 0.08], 1.5]]],
+  ['jThighOR',  'rThighBend',   'thigh',   [['jGluteR',  [0.30, 0.04, 0.14], 6.0],
+                                             ['jThighIR', [0.12, 0.05, 0.08], 1.5]]],
+  ['jThighIL',  'lThighBend',   'thighIn', [['jGluteL',  [0.10, 0.02, 0.06], 3.0],
+                                             ['jThighOL', [0.18, 0.06, 0.12], 2.0]]],
+  ['jThighIR',  'rThighBend',   'thighIn', [['jGluteR',  [0.10, 0.02, 0.06], 3.0],
+                                             ['jThighOR', [0.18, 0.06, 0.12], 2.0]]],
+  ['jBelly',    'abdomenLower', 'belly'],
+];
+const jigState = new Map();
+let softDrag = null;          // name of the soft-tissue bone being pulled
+const CHAINS = [
+  { side:'l', root:'lShldrBend', mid:'lForearmBend', end:'lHand',
+    pole:new THREE.Vector3( 1, 0.55, -0.12) },
+  { side:'r', root:'rShldrBend', mid:'rForearmBend', end:'rHand',
+    pole:new THREE.Vector3(-1, 0.55, -0.12) },
+];
+const SPINE_PULL = [['chestUpper',0.42], ['chestLower',0.28],
+                    ['abdomenUpper',0.18], ['abdomenLower',0.12]];
+const bones = new Map();
+const _ray = new THREE.Raycaster();
+const _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3(), _p2 = new THREE.Vector3();
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qd = new THREE.Quaternion();
+const _da = new THREE.Vector3(), _db = new THREE.Vector3(), _seg = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+const IDENT = new THREE.Quaternion();
+
+function bone(n){ return bones.get(n); }
+
+/* These helpers own their scratch values. Sharing module-level temporaries
+   between a caller and its callee silently aliases them: solveArm used to pass
+   _p1 as the elbow target, aimBone then overwrote _p1 with the child's world
+   position, and the "rotation" became identity. */
+const _rA = new THREE.Quaternion(), _rB = new THREE.Quaternion(), _rC = new THREE.Quaternion();
+function rotateBoneWorld(b, qWorld){
+  _rC.copy(qWorld);
+  b.getWorldQuaternion(_rA);
+  _rB.copy(_rC).multiply(_rA);
+  b.parent.getWorldQuaternion(_rA);
+  b.quaternion.copy(_rA.invert().multiply(_rB));
+  b.updateMatrixWorld(true);
+}
+const _aA = new THREE.Vector3(), _aB = new THREE.Vector3(), _aT = new THREE.Vector3();
+const _aQ = new THREE.Quaternion();
+function aimBone(b, child, target){
+  _aT.copy(target);
+  b.getWorldPosition(_aA);
+  child.getWorldPosition(_aB);
+  _aB.sub(_aA);
+  _aT.sub(_aA);
+  if (_aB.lengthSq() < 1e-10 || _aT.lengthSq() < 1e-10) return;
+  _aQ.setFromUnitVectors(_aB.normalize(), _aT.normalize());
+  rotateBoneWorld(b, _aQ);
+}
+const _sSh = new THREE.Vector3(), _sE = new THREE.Vector3(), _sH = new THREE.Vector3();
+const _sAx = new THREE.Vector3(), _sPole = new THREE.Vector3(), _sBias = new THREE.Vector3();
+const _sTgt = new THREE.Vector3();
+const _sCross = new THREE.Vector3(), _sQrot = new THREE.Quaternion();
+function solveArm(ch, target){
+  const R = bone(ch.root), M = bone(ch.mid), Eb = bone(ch.end);
+  if (!R || !M || !Eb) return 0;
+  _sTgt.copy(target);
+  R.getWorldPosition(_sSh); M.getWorldPosition(_sE); Eb.getWorldPosition(_sH);
+  const La = _sSh.distanceTo(_sE), Lb = _sE.distanceTo(_sH);
+  const reach = La + Lb;
+  _sAx.subVectors(_sTgt, _sSh);
+  const raw = _sAx.length();
+  if (raw < 1e-4 || reach < 1e-4) return 0;
+  _sAx.divideScalar(raw);
+
+  // Soft limit: compress asymptotically near full extension. A hard clamp is
+  // what made the hand stop dead and the back suddenly arch.
+  const knee = reach * 0.86, span = reach * 0.135;
+  const dist = raw <= knee ? raw
+             : knee + span * (1 - Math.exp(-(raw - knee) / span));
+
+  /* Anatomical bias, projected perpendicular to the current arm axis.
+
+     `ch.pole` is a WORLD vector — (1, 0.55, −0.12) for her left arm — which is
+     only "out and back" while she is facing the way she started. Once the roll
+     or a step has turned her, the carried pole drifts onto a bias that is no
+     longer anatomical and the solution crosses over: the elbow ends up on the
+     far side, which reads as an arm spinning backwards. armPole() rebuilds it
+     in HER frame, and comes with a backstop so the carried pole can never end
+     up past it. (From the balance session — see armPole in balance.js.) */
+  if (BLOCK.balance) BLOCK.balance.api.armPole(ch, _sBias);
+  else _sBias.copy(ch.pole);
+  _sBias.addScaledVector(_sAx, -_sBias.dot(_sAx));
+  /* A floor, not a test for exact zero. Within a few degrees of the arm axis
+     the perpendicular component is nearly all floating-point noise, and
+     normalising noise gives a direction — a different one each frame. */
+  if (_sBias.lengthSq() < 0.02){
+    _sBias.set(0, 1, 0).addScaledVector(_sAx, -_sAx.y);
+    if (_sBias.lengthSq() < 1e-6) _sBias.set(0, 0, 1).addScaledVector(_sAx, -_sAx.z);
+  }
+  _sBias.normalize();
+
+  // Carry last frame's pole forward. A fixed world pole degenerates whenever
+  // the shoulder-to-hand axis swings near it and the elbow pops between
+  // solutions — that is the "two or three clicks" feel.
+  _sPole.copy(GRAB.poleRef).addScaledVector(_sAx, -GRAB.poleRef.dot(_sAx));
+  if (_sPole.lengthSq() < 0.02) _sPole.copy(_sBias); else _sPole.normalize();
+  /* Rotate the carried pole toward the anatomical one ABOUT THE ARM AXIS,
+     rather than lerping between them.
+
+     A lerp cannot rotate a unit vector past the antipode. At dot near −1 it
+     produces a shorter vector pointing the way it already pointed, which
+     normalises straight back to where it started — so an elbow swung round to
+     the wrong side is not slow to come home, it is STUCK there. The balance
+     session measured it over a hand taken twice round a 42 cm circle: the
+     elbow ended at a dot of −1.000 against where an elbow belongs and never
+     recovered, at every homing rate tried. Snapping it home instead is worse —
+     a snap IS a 180° flip in one frame, and the same sweep went from a worst
+     frame-to-frame movement of 4.4° to 175.8°. */
+  {
+    const home = BLOCK.balance ? BLOCK.balance.api.BAL.armHome : 0.07;
+    const d = Math.max(-1, Math.min(1, _sPole.dot(_sBias)));
+    const ang = Math.acos(d);
+    if (ang > 1e-4){
+      _sCross.crossVectors(_sPole, _sBias);
+      const sgn = _sCross.dot(_sAx) < 0 ? -1 : 1;
+      _sQrot.setFromAxisAngle(_sAx, sgn * ang * home);
+      _sPole.applyQuaternion(_sQrot).normalize();
+    }
+  }
+  GRAB.poleRef.copy(_sPole);
+
+  const a = (La*La - Lb*Lb + dist*dist) / (2*dist);
+  const h = Math.sqrt(Math.max(0, La*La - a*a));
+  _sE.copy(_sSh).addScaledVector(_sAx, a).addScaledVector(_sPole, h);
+  aimBone(R, M, _sE);
+  _sH.copy(_sSh).addScaledVector(_sAx, dist);
+  aimBone(M, Eb, _sH);
+  return raw / reach;
+}
+
+const _jp = new THREE.Vector3(), _jv = new THREE.Vector3(), _ja = new THREE.Vector3();
+const _jt = new THREE.Vector3(), _jd = new THREE.Vector3(), _jw = new THREE.Vector3();
+const _jf = new THREE.Vector3(), _jqw = new THREE.Quaternion();
+const _jg = new THREE.Vector3(), _jn = new THREE.Vector3();
+const _jr = new THREE.Vector3(), _jfv = new THREE.Vector3();
+const _jqi = new THREE.Quaternion();
+/* Losing your grip is not the same as letting go: the pointer is still down,
+   so the orbit stays suppressed until you actually release, but the flesh is
+   no longer attached to it and falls back under its own spring. */
+function slipGrip(){
+  if (!softDrag) return;
+  const st = jigState.get(softDrag);
+  if (st){ st.target.set(0, 0, 0); st.slipT = 0; }
+  softDrag = null;
+  canvas.classList.remove('grabbing');
+}
+function jig(name){
+  let st = jigState.get(name);
+  if (!st){
+    const b = bone(name); if (!b) return null;
+    st = { prev: new THREE.Vector3(), vel: new THREE.Vector3(),
+           acc: new THREE.Vector3(),
+           disp: new THREE.Vector3(), dvel: new THREE.Vector3(),
+           target: new THREE.Vector3(), rest: new THREE.Vector3(),
+           pick: new THREE.Vector3(), nrm: new THREE.Vector3(0, 0, 1), slipT: 0,
+           base: b.quaternion.clone(), basePos: b.position.clone(),
+           baseScale: b.scale.clone(), init: false };
+    jigState.set(name, st);
+  }
+  return st;
+}
+/* Soft tissue is displaced by TRANSLATING its bone, not rotating it. Rotation
+   pivots the flesh about a point inside the body, so pulling a cheek sideways
+   swung it inward and read as a pinch. A translation moves the whole weighted
+   island the way the finger went, which is what spreading a cheek looks like. */
+function applyJiggle(dt){
+  const h = Math.min(dt, 1/45);
+  // her facing, for the belly bulge — it protrudes forward, not radially
+  if (charRoot){ charRoot.getWorldQuaternion(_jqw); _jf.set(0, 0, 1).applyQuaternion(_jqw); }
+  else { _jqw.identity(); _jf.set(0, 0, 1); }
+  _jqi.copy(_jqw).invert();       // for reading displacements in her own frame
+
+  for (const [name, driver, region, follow] of JIGGLE){
+    const b = bone(name), d = bone(driver);
+    if (!b || !d) continue;
+    const st = jig(name); if (!st) continue;
+    const R = REGION[region];
+    const amount = JIG[R.slider || region];
+
+    // no clip animates these bones, so the mixer never resets them —
+    // without restoring a base, every frame's offset compounds
+    b.quaternion.copy(st.base);
+    b.position.copy(st.basePos);
+    b.scale.copy(st.baseScale);
+    // Stretched flesh does not just translate, it bunches. Scaling about the
+    // bone head pushes the weighted shell outward, and because the weights
+    // fall off the outer edge moves most — which reads as fat collecting on
+    // the side you are pulling toward.
+    let sc = R.swell ? 1 + R.swell * st.disp.length() : 1;
+    if (name === 'jBelly' && JIG.bulge > 0) sc *= 1 + JIG.bulge * 1.9;
+    if (sc !== 1) b.scale.multiplyScalar(sc);
+    b.updateMatrixWorld(true);
+    b.getWorldPosition(st.rest);
+    const P = SOFT_PICK[name];
+    if (P){
+      st.pick.set(P.off[0], P.off[1], P.off[2]).applyQuaternion(_jqw).add(st.rest);
+      st.nrm.set(P.n[0], P.n[1], P.n[2]).applyQuaternion(_jqw).normalize();
+    } else {
+      st.pick.copy(st.rest);
+      st.nrm.set(0, 0, 1).applyQuaternion(_jqw);
+    }
+
+    if (!JIG.on){ continue; }
+
+    d.getWorldPosition(_jp);
+    if (!st.init){ st.prev.copy(_jp); st.init = true; continue; }
+    _jv.subVectors(_jp, st.prev).divideScalar(h);
+    _ja.subVectors(_jv, st.vel).divideScalar(h);
+    st.prev.copy(_jp); st.vel.copy(_jv);
+    // twice-differentiated positions at a variable timestep are noisy, and a
+    // single-frame spike reads as a twitch rather than as flesh
+    if (_ja.lengthSq() > 900) _ja.setLength(30);
+    st.acc.lerp(_ja, 1 - Math.exp(-h * 26));
+
+    const A = R.axis, g = Math.max(0, amount);
+
+    // equilibrium: the bind pose normally, but a follower's rest point is
+    // dragged along by whatever it hangs off — the upper thigh trails the
+    // cheek above it rather than waiting for an acceleration spike
+    _jt.set(0, 0, 0);
+    _jr.set(0, 0, 0);
+    if (follow) for (const [fn, gains, ripple] of follow){
+      const fs = jigState.get(fn);
+      if (!fs) continue;
+      _jfv.copy(fs.disp).applyQuaternion(_jqi);
+      _jfv.set(_jfv.x * gains[0], _jfv.y * gains[1], _jfv.z * gains[2]);
+      _jt.add(_jfv.applyQuaternion(_jqw));
+      if (ripple) _jr.addScaledVector(fs.dvel, ripple);
+    }
+
+    // forces, in m/s². Body acceleration and your grip are both applied
+    // through the anisotropic compliance; the restoring spring is isotropic.
+    _jd.set(st.acc.x * A[0], st.acc.y * A[1], st.acc.z * A[2])
+       .multiplyScalar(-g * R.gain)
+       .add(_jr);
+
+    if (softDrag === name){
+      const G = R.grip;
+      _jg.subVectors(st.target, st.disp);      // daylight between finger and flesh
+      const stretch = _jg.length();
+      // A grip does not fail the instant you outrun it — it holds, transmits
+      // everything it has for a moment, and then fails. Without this grace a
+      // fast yank slipped on the first frame and delivered nothing, which is
+      // the opposite of what a quick tug should feel like: now the saturated
+      // force lands as an impulse and the flesh is already moving when it
+      // comes free.
+      st.slipT = stretch > G.slip ? st.slipT + h : Math.max(0, st.slipT - h * 2);
+      if (st.slipT > 0.085){
+        // outrun it — it comes out of your hand, and that is a small startle
+        slipGrip();
+        if (BLOCK.mood) BLOCK.mood.api.moodEvent('slip', 1);
+      } else if (stretch > 1e-6){
+        const fmax = G.force * Math.max(0.35, g);
+        _jg.multiplyScalar(fmax * Math.tanh(G.k * stretch / fmax) / stretch);
+        _jd.x += _jg.x * A[0]; _jd.y += _jg.y * A[1]; _jd.z += _jg.z * A[2];
+      }
+    }
+
+    _jd.addScaledVector(_jn.subVectors(st.disp, _jt), -R.stiffness)
+       .addScaledVector(st.dvel, -R.damping * JIG.damping);
+    st.dvel.addScaledVector(_jd, h);
+    st.disp.addScaledVector(st.dvel, h);
+
+    // Flesh sits on top of a body, so it can slide and lift but it cannot sink
+    // into what is underneath. Without this, dragging a cheek across her
+    // pushed it straight through her hip.
+    const maxIn = R.maxIn === undefined ? 0.02 : R.maxIn;
+    const into = -st.disp.dot(st.nrm);
+    if (into > maxIn){
+      st.disp.addScaledVector(st.nrm, into - maxIn);
+      const vin = -st.dvel.dot(st.nrm);          // kill the velocity driving it in
+      if (vin > 0) st.dvel.addScaledVector(st.nrm, vin);
+    }
+
+    // a backstop, not the shape of the response — the force cap above is what
+    // actually decides how far a pull gets
+    const cap = R.max * (softDrag === name ? 3.2 : 1.0);
+    if (st.disp.length() > cap) st.disp.setLength(cap);
+
+    _jw.copy(st.disp);
+    if (name === 'jBelly' && JIG.bulge > 0) _jw.addScaledVector(_jf, JIG.bulge * 0.052);
+    if (_jw.lengthSq() < 1e-10) continue;
+
+    b.position.copy(b.parent.worldToLocal(_jw.add(st.rest)));
+    b.updateMatrixWorld(true);
+  }
+}
+
+/* Per-region pick radius. A jiggle bone sits at the centre of its flesh, so the
+   radius is roughly how far that flesh extends — the belly one is deliberately
+   tight because the bone is buried and her forearm passes right over it. */
+function softDist(ray, name){
+  const st = jigState.get(name);
+  if (!st || !st.init) return Infinity;
+  return Math.sqrt(ray.distanceSqToPoint(st.pick));
+}
+function softScore(ray, name){
+  const st = jigState.get(name);
+  // facing test: if the region's outward normal points away from the ray, you
+  // are looking at the far side of her and should not be able to take hold of
+  // it through her body
+  if (st && st.init && ray.direction.dot(st.nrm) > -0.12) return Infinity;
+  const P = SOFT_PICK[name];
+  return softDist(ray, name) / ((P && P.r) || 0.100);
+}
+function pickSoft(ray){
+  let best = null, bestS = 1.0;
+  for (const [name] of JIGGLE){
+    const s = softScore(ray, name);
+    if (s < bestS){ bestS = s; best = name; }
+  }
+  return best;
+}
+/* Arms and flesh compete for the same pixels — her forearm hangs directly over
+   her belly from the front — so the two are scored together, in units of each
+   target's own radius, rather than letting arms always win. */
+function pickAny(ray){
+  let bestS = 1.0, chain = null, soft = null;
+  const ch = pickChain(ray);
+  // Flesh wins a close call. Her forearm hangs beside her chest and over her
+  // belly, so on a tie the arm was taking grabs that were plainly aimed at
+  // neither; a 25% handicap settles it without making the arm hard to grab.
+  if (ch){ bestS = (chainDist(ray, ch) / 0.090) * 1.25; chain = ch; }
+  for (const [name] of JIGGLE){
+    const s = softScore(ray, name);
+    if (s < bestS){ bestS = s; soft = name; chain = null; }
+  }
+  /* The sternum handle is a SEGMENT from the notch to the xiphoid, not a
+     sphere — her pectoral pick points sit only 8 cm either side with a 10.5 cm
+     radius, so anywhere between her breasts a breast is nearer than the centre
+     of any sphere small enough not to steal chest grabs. twistPick already
+     returns the same normalised score the others do. */
+  if (BLOCK.twist){
+    const ts = BLOCK.twist.api.twistPick(ray);
+    if (ts < bestS){ bestS = ts; chain = null; soft = null; return { chain: null, soft: null, twist: true }; }
+  }
+  return { chain, soft };
+}
+
+function segHit(ray, aName, bName){
+  const A = bone(aName), B = bone(bName);
+  if (!A || !B) return Infinity;
+  A.getWorldPosition(_p0); B.getWorldPosition(_p1);
+  return Math.sqrt(ray.distanceSqToSegment(_p0, _p1, null, _seg));
+}
+/* Only the forearm and hand are grabbable. The upper arm hangs right in front
+   of the chest, so a shoulder-to-elbow segment kept winning picks that were
+   aimed at her breast. */
+const _pcA = new THREE.Vector3(), _pcB = new THREE.Vector3(), _pcD = new THREE.Vector3();
+function chainDist(ray, ch){
+  const M = bone(ch.mid), E = bone(ch.end);
+  if (!M || !E) return Infinity;
+  M.getWorldPosition(_pcA); E.getWorldPosition(_pcB);
+  // start a little below the elbow and run past the wrist, so the hand itself
+  // is grabbable but the elbow crease is not
+  _pcD.subVectors(_pcB, _pcA);
+  const L = _pcD.length();
+  if (L < 1e-5) return Infinity;
+  _pcD.divideScalar(L);
+  _pcA.addScaledVector(_pcD, L * 0.38);
+  _pcB.addScaledVector(_pcD, L * 0.42);
+  return Math.sqrt(ray.distanceSqToSegment(_pcA, _pcB, null, _seg));
+}
+/* You have to be able to SEE what you take hold of. `chainDist` is a
+   ray-to-segment distance and knows nothing about what is in front of that
+   segment, so with her hands behind her back a drag across her belly took hold
+   of a forearm that was not on screen — and ate the drag that should have gone
+   to her. The soft-tissue picks have had a facing test from the start
+   (`softScore`); `occluded` gives the arms a real one, against a capsule built
+   from her own silhouette. It lives in the balance block because that is where
+   everything that knows her proportions lives. */
+function pickChain(ray){
+  let best = null, bestD = 0.090;
+  for (const ch of CHAINS){
+    const d = chainDist(ray, ch);
+    // _seg is where chainDist left the closest point on the segment
+    if (d < bestD && !(BLOCK.balance && BLOCK.balance.api.occluded(ray, _seg))){
+      bestD = d; best = ch;
+    }
+  }
+  return best;
+}
+/* The AO and normal maps are baked for the bind pose. Move a breast 60 mm and
+   the crease shading underneath it is painted onto a surface that no longer has
+   a crease, so it travels along as a smear. Nothing can re-bake it at runtime,
+   but it can be faded in proportion to how far the tissue has left the pose it
+   was baked for, which is exactly when it stops being true.
+
+   Which map matters was measured, not guessed: rendering the same 70 mm lift
+   with each disabled in turn, the NORMAL map is what makes the hard dark mark
+   at the nipple — switching it off very nearly removes it — the baked AO barely
+   contributes, and the shadow map adds a separate broad band. So normals fade
+   hard and AO gently. */
+let bakedK = -1;
+function fadeBaked(){
+  const grp = GROUPS.find(g => g.id === 'skin');
+  if (!grp || !grp.state) return;
+  let d = 0;
+  for (const [name] of JIGGLE){
+    const st = jigState.get(name);
+    if (st) d = Math.max(d, st.disp.length());
+  }
+  const u = Math.min(1, d / 0.075);          // 0 at rest, 1 when fully displaced
+  if (Math.abs(u - bakedK) < 0.02) return;
+  bakedK = u;
+  const ao = (grp.state.aoMapIntensity ?? grp.d.aoMapIntensity) * (1 - 0.35 * u);
+  const ns = (grp.state.normalScale    ?? grp.d.normalScale)    * (1 - 0.75 * u);
+  for (const name of grp.mats){
+    const m = matsByName.get(name); if (!m) continue;
+    m.aoMapIntensity = ao;
+    if (m.normalScale) m.normalScale.set(ns, ns);
+  }
+}
+
+function pointerRay(ev){
+  const r = canvas.getBoundingClientRect();
+  _ray.setFromCamera({ x:((ev.clientX - r.left)/r.width)*2 - 1,
+                       y:-((ev.clientY - r.top)/r.height)*2 + 1 }, camera);
+  return _ray.ray;
+}
+let shuffle = false, shuffleEvery = 15, shuffleAcc = 0;
+/* Filled in start(). Every call site is guarded on the entry being non-null, so
+   a block that throws during setup takes itself out rather than the page. */
+const BLOCK = { face: null, gaze: null, hair: null, twist: null, balance: null,
+                mood: null };
+/* Add_LookAround is OFF. It is a baked glance on a fixed cycle, and the gaze
+   block now decides where she looks and commits to it — two systems aiming the
+   same head disagree, and the baked one has no idea where the camera is. The
+   slider is still there if it is ever wanted back. */
+const ADD_DEFAULT = { Add_Blink: 1.0, Add_MouthIdle: 0.20, Add_LookAround: 0.0, Add_Smirk: 0.40 };
+/* What the Layers sliders currently hold, by clip name. The gaze and face
+   blocks duck Add_LookAround and Add_Smirk while they are driving, and need to
+   know what weight to duck *from* — without this they would restore to a
+   hard-coded guess and quietly override whatever Luca set. */
+const addBase = new Map();
+const LABEL = { Idle_Shy:'Shy', Idle_Sides:'At sides', Idle_Belly:'Belly',
+                Idle_Sway:'Sway', Idle_HairTouch:'Hair',
+                Walk_Pace:'Pace', Step_Settle:'Step' };
+
+const gloader = new GLTFLoader(manager);
+
+gloader.load(CHAR_URL, (gltf) => {
+  charRoot = gltf.scene;
+  let tris = 0, meshCount = 0;
+  charRoot.traverse((o) => {
+    if (!o.isMesh && !o.isSkinnedMesh) return;
+    meshCount++;
+    o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
+    const list = Array.isArray(o.material) ? o.material : [o.material];
+    const out = list.map((m) => {
+      if (!m) return m;
+      if (matsByName.has(m.name)) return matsByName.get(m.name);
+      const ph = toPhysical(m);
+      for (const t of [ph.map, ph.normalMap, ph.roughnessMap, ph.aoMap, ph.emissiveMap])
+        if (t) t.anisotropy = maxAniso;
+      matsByName.set(ph.name, ph);
+      return ph;
+    });
+    o.material = Array.isArray(o.material) ? out : out[0];
+    const g = o.geometry;
+    if (g && g.index) tris += g.index.count / 3;
+    else if (g) tris += g.attributes.position.count / 3;
+  });
+  charRoot.userData.tris = Math.round(tris);
+  charRoot.userData.meshes = meshCount;
+  maybeStart();
+}, undefined, (err) => { console.error(err); bootFail('The character failed to load — ' + (err && err.message || err)); });
+
+gloader.load(CLIPS_URL, (gltf) => {
+  clipList = gltf.animations || [];
+  maybeStart();
+}, undefined, (err) => { console.error(err); clipList = []; maybeStart(); });
+
+function maybeStart(){
+  if (!charRoot || !clipList) return;
+  try { start(); }
+  catch (e){
+    // GLTFLoader funnels exceptions thrown here into its own onError, which
+    // then reports a download failure that never happened. Surface the truth.
+    console.error(e);
+    bootFail('Loaded, but the viewer failed to start: ' + (e && e.message || e));
+  }
+}
+
+function start(){
+
+  mixer = new THREE.AnimationMixer(charRoot);
+  for (const clip of clipList){
+    clipMeta.set(clip.name, { duration: clip.duration });
+    if (clip.name.startsWith('Add_')){
+      THREE.AnimationUtils.makeClipAdditive(clip);
+      const a = mixer.clipAction(clip);
+      a.blendMode = THREE.AdditiveAnimationBlendMode;
+      a.setLoop(THREE.LoopRepeat, Infinity);
+      a.setEffectiveWeight(ADD_DEFAULT[clip.name] ?? 1);
+      addBase.set(clip.name, ADD_DEFAULT[clip.name] ?? 1);
+      a.play();
+      addActions.set(clip.name, a);
+    } else {
+      const a = mixer.clipAction(clip);
+      a.setLoop(THREE.LoopRepeat, Infinity);
+      baseActions.set(clip.name, a);
+    }
+  }
+  const PREF = ['Idle_Shy','Idle_Sides','Idle_Sway','Idle_Belly','Idle_HairTouch'];
+  const first = PREF.find(n => baseActions.has(n)) || [...baseActions.keys()][0];
+  if (first){
+    current = baseActions.get(first);
+    current.setEffectiveWeight(1).play();
+  }
+  hipBone = charRoot.getObjectByName('hip') || null;
+  charRoot.traverse(o => { if (o.isBone) bones.set(o.name, o); });
+  mixer.update(0);
+  charRoot.updateMatrixWorld(true);
+
+  /* ── the portable blocks ────────────────────────────────────────────────
+     Installed here and not earlier: each destructures charRoot at install
+     time, and their setups measure the rig — the hair samples its own centroid
+     off the cards, the face reads bone rest positions — so the world matrices
+     have to be current first.
+
+     Face before gaze, because the gaze calls into the face when she arrives on
+     a look and needs the returned API to link against. */
+  BLOCK.face = installFace({ THREE, bone, charRoot, addActions, addBase });
+  BLOCK.twist = installTwist({ THREE, bone, charRoot, camera, canvas,
+                               rotateBoneWorld, aimBone, IDENT });
+  BLOCK.gaze = installGaze({ THREE, bone, charRoot, camera, rotateBoneWorld, IDENT,
+                             addActions, addBase, current: () => current });
+  BLOCK.hair = installHair({ THREE, bone, charRoot });
+  BLOCK.balance = installBalance({ THREE, bone, bones, charRoot, camera, canvas,
+                                   controls, scene, UP, aimBone, rotateBoneWorld,
+                                   pointerRay, _ray, CHAINS, GRAB, jigState,
+                                   /* the blink: balance drives Add_Blink itself,
+                                      because a reflex is not an expression and must
+                                      not go through the one-face-owner rule. */
+                                   addActions,
+                                   softDrag: () => softDrag });
+  /* The gaze reads the roll's headFollow through this, as a bias on its own
+     TARGET rather than a rotation on her neck — so the drift still arrives
+     through the gaze's spring instead of being dragged by a second system. */
+  BLOCK.gaze.link({ ...BLOCK.face.api, twistGazeBias: BLOCK.twist.api.twistGazeBias });
+  /* Balance answers her face in her chest, so it needs both blocks' state. */
+  BLOCK.balance.link({ FACE: BLOCK.face.api.FACE, GAZE: BLOCK.gaze.api.GAZE,
+                       gazeState: BLOCK.gaze.api.gazeState,
+                       /* The chin grab commits the gaze where it put her head,
+                          and puckers her mouth through the face block's own
+                          bone table — faceState says which bones are its to
+                          write. Both guarded with typeof, which does NOT throw
+                          on an undeclared name, so leaving either out disables
+                          that half of the chin grab in total silence. */
+                       gazeCommit: BLOCK.gaze.api.gazeCommit,
+                       faceState: BLOCK.face.api.faceState });
+  BLOCK.mood = installMood({ THREE, bone, camera, GRAB, jigState, JIG,
+                             softDrag: () => softDrag });
+  /* The mood reads every other block's state — what the roll did, what the
+     legs did, where her eyes went — and is the only thing that turns any of it
+     into a face. */
+  BLOCK.mood.link({ FACE: BLOCK.face.api.FACE, GAZE: BLOCK.gaze.api.GAZE,
+                    gazeState: BLOCK.gaze.api.gazeState,
+                    TWIST: BLOCK.twist.api.TWIST,
+                    twistState: BLOCK.twist.api.twistState,
+                    BAL: BLOCK.balance.api.BAL, LEG: BLOCK.balance.api.LEG });
+  /* ── the roll and the balance both want her legs ───────────────────────
+     Torso roll moves her pelvis and then solves both legs to keep her feet
+     planted; balance does the same job from a real support polygon, off her
+     centre of mass, and can step. Run the roll FIRST and let balance see the
+     moved pelvis and own the legs outright — with the roll's own settle at
+     zero, so it is not computing a knee bend that is about to be overwritten
+     and dropping her hip by a centimetre for it. Do not run both with
+     TWIST.knee > 0: there is no ordering that makes that correct. */
+  BLOCK.twist.api.TWIST.knee = 0;
+  /* Balance's own head-turn is OFF, and stays off. It predates the gaze block
+     and aims the same neck from a different idea of where she should be
+     looking; the gaze block owns her head. Everything else balance does to her
+     face — the mood, the catch, the answer in her chest — goes through
+     `window.Companion.face` and does not touch the neck. */
+  BLOCK.balance.api.BAL.look = 0;
+  /* Warm, and not melancholy. Nothing drew on the mood tables until now — the
+     face block's expressions were fired by hand or by the gaze — and the
+     catalogue's `mixed` default gives her a standing chance of sad, hurt,
+     worried and tired. Luca's note on that, from the balance build: it goes
+     "too quickly to the one that almost looks like fear, and we never want her
+     to actually look afraid". `warm` is soft / smile / grin / coy / amused /
+     curious with a little wistful. Both are controls in the panel, so the rest
+     of the catalogue is one pick away rather than gone. */
+  BLOCK.face.api.FACE.mood = 'warm';
+  BLOCK.face.api.FACE.melancholy = 0;
+  /* One expression per arrival, not two. The gaze fires `random` the moment she
+     lands on you; balFace fires the same instant out of her MOOD, so the look
+     you get when she finds you is about what you have been doing to her. Both
+     on is two faceTriggers in one frame and the second wins, which is the gaze's
+     — the mood would be silently thrown away. The gaze's is the one that goes,
+     since the mood version is strictly more informed. */
+  BLOCK.gaze.api.GAZE.express = false;
+  /* ── the hair swings less here than it did in hairlab ──────────────────
+     Luca: "The hair is swaying way too much in here. Can we turn that
+     setting way down by default?"
+
+     THREE knobs, not one, because the block's own note says where the read
+     comes from: `armScale` is 0.3, which "mostly takes the translation
+     channel out and leaves the turn-driven twist to carry the read". So the
+     sway you see is mostly `twist`, some `amp`, and — while she is just
+     standing there, which is most of the time — the ambient `drift`.
+
+     All three go to about a third, and the RATIOS BETWEEN THEM ARE KEPT:
+     these are his numbers, dialled by eye in hairlab, and the balance and
+     gaze layers now drive her head a great deal harder than that build did.
+     What was too much is the drive, not his taste. Every one of them is a
+     slider in the Hair motion panel, and the range is 4x the default, so
+     there is room to put any of it back. */
+  { const H = BLOCK.hair.api.HAIR;
+    H.amp = 0.55;        // was 1.69 — the swing channel
+    H.twist = 0.70;      // was 2.10 — the turn-driven one, which carries it
+    H.drift = 0.007; }   // was 0.0155 — the ambient sway when nothing happens
+  /* ── HER FACE HAS ONE OWNER ────────────────────────────────────────────
+     Four systems used to fire expressions independently: the gaze on arrival,
+     balance on a touch / a landing / a glance, the torso roll on a deep roll,
+     and the face block's own cycle. Four writers on one face is four writers
+     arguing, and the loser is whichever fired first in the frame.
+
+     The mood block is now the only one that fires. It reads what each of the
+     others DID — the roll angle, the landing, the stumble, her eyes arriving —
+     and turns it into a feeling first, so the same event lands differently
+     depending on what came before it. Balance keeps `balPosture` (her body
+     answering her face) and `jawOpen` (a reflex, not an expression), because
+     neither of those triggers anything. */
+  BLOCK.balance.api.BAL.face = false;
+  BLOCK.balance.api.BAL.touch = false;
+  BLOCK.twist.api.TWIST.express = false;
+  for (const k of ['face', 'twist', 'gaze', 'hair', 'balance', 'mood']){
+    try { BLOCK[k].setup(); }
+    catch (e){ console.error('block ' + k + ' failed to set up', e); BLOCK[k] = null; }
+  }
+  /* The balance session's probes drive the frame by hand and reach its entry
+     points by bare name off __stage. Spread rather than listed, so a new one in
+     that block arrives here on the next wrap without an edit here. */
+  if (BLOCK.balance) Object.assign(window.__stage, BLOCK.balance.api);
+
+  subject.add(charRoot);
+  frameSubject(subject);
+
+  for (const grp of GROUPS)
+    for (const name of grp.mats){
+      const mat = matsByName.get(name);
+      if (!mat) continue;
+      for (const k of grp.keys) applyKey(mat, k, grp.d[k]);
+    }
+
+  $('assetLine').textContent =
+    `${subjectHeight.toFixed(2)} m · ${charRoot.userData.tris.toLocaleString()} tris · ` +
+    `${baseActions.size + addActions.size} clips`;
+  buildRail();
+  buildPanels();
+  if (current) markRail(current.getClip().name);
+  setProgress(1);
+  setTimeout(() => boot.classList.add('gone'), 260);
+}
+
+function applyGrab(dt){
+  if (!GRAB.chain) return;
+  const ch = GRAB.chain;
+
+  if (GRAB.releaseT >= 0){
+    GRAB.releaseT += dt / Math.max(0.05, GRAB.returnTime);
+    const t = GRAB.releaseT;
+    // a damped oscillation, not a fade — the limb overshoots and settles
+    GRAB.weight = Math.max(-0.30, Math.exp(-4.2*t)
+                                  + GRAB.wobble * Math.exp(-2.6*t) * Math.sin(10.5*t));
+    if (t >= 1.35){ GRAB.chain = null; GRAB.weight = 0; GRAB.releaseT = -1; return; }
+  } else {
+    GRAB.weight += (1 - GRAB.weight) * Math.min(1, dt * 11);
+  }
+
+  // spring the solve target toward the cursor so the arm has some weight
+  _da.subVectors(GRAB.desired, GRAB.pos).multiplyScalar(GRAB.stiffness);
+  _da.addScaledVector(GRAB.vel, -GRAB.damping);
+  GRAB.vel.addScaledVector(_da, Math.min(dt, 0.033));
+  GRAB.pos.addScaledVector(GRAB.vel, Math.min(dt, 0.033));
+
+  const w = GRAB.weight;
+  const names = [ch.root, ch.mid, ...SPINE_PULL.map(p => p[0])];
+  const anim = names.map(n => { const b = bone(n); return b ? b.quaternion.clone() : null; });
+
+  // body follow-through: the further past comfortable reach, the more she is
+  // dragged over — chest most, hips least
+  const R = bone(ch.root);
+  if (R){
+    R.getWorldPosition(_p0);
+    _db.subVectors(GRAB.pos, _p0);
+    // ramps in gradually from well before full extension, so the torso leans
+    // into the pull instead of arching all at once
+    const u = _db.length() / Math.max(1e-4, GRAB.armLen);
+    const x = Math.min(1, Math.max(0, (u - 0.58) / 0.55));
+    const over = x*x*(3 - 2*x);
+    if (over > 0.001){
+      _db.normalize();
+      _p1.copy(UP).lerp(_db, Math.min(0.42, over * GRAB.bodyPull * 0.42)).normalize();
+      _qd.setFromUnitVectors(UP, _p1);
+      SPINE_PULL.forEach(([n, share], i) => {
+        const b = bone(n); if (!b) return;
+        // slerp result must live in its own quaternion
+        // each link down the spine lags the one above it, so the body settles
+        // in sequence rather than as one rigid piece
+        GRAB.lag[i] += (w - GRAB.lag[i]) * Math.min(1, dt * (16 - i*3.1));
+        rotateBoneWorld(b, _qb.copy(IDENT).slerp(_qd, share * Math.max(0, GRAB.lag[i])));
+      });
+    }
+  }
+  solveArm(ch, GRAB.pos);
+
+  names.forEach((n, i) => {
+    const b = bone(n); if (!b || !anim[i]) return;
+    _qb.copy(b.quaternion);
+    b.quaternion.copy(anim[i]).slerp(_qb, w);
+  });
+  charRoot.updateMatrixWorld(true);
+}
+
+/* Registered on window in the capture phase: OrbitControls listens on the
+   canvas, and for events targeting the canvas both its capture and bubble
+   listeners fire in registration order — so the only way to get in first is
+   to catch the event higher up the tree and stop it there. */
+addEventListener('pointermove', (ev) => {
+  if (!GRAB.on || !charRoot || ev.target !== canvas) return;
+  /* Checked before GRAB.active, because a roll is not a grab as far as this
+     handler is concerned — it owns the pointer without owning GRAB. */
+  if (BLOCK.twist && BLOCK.twist.api.twistState.dragging){
+    ev.stopPropagation(); BLOCK.twist.api.twistMove(ev); return;
+  }
+  if (GRAB.active){
+    ev.stopPropagation();
+    const ray = pointerRay(ev);
+    if (!ray.intersectPlane(GRAB.plane, _p0)) return;
+    if (softDrag){
+      const st = jigState.get(softDrag);
+      if (st) st.target.copy(_p0).add(GRAB.offset).sub(st.pick);
+    } else {
+      GRAB.desired.copy(_p0).add(GRAB.offset);
+      /* Dragging down the screen used to drag her hand at the floor, which is
+         not a direction a standing person can be led in. Below where you took
+         hold of her it now reads as DEPTH instead, so straight down walks her
+         toward the camera. Up still lifts her. */
+      if (BLOCK.balance) BLOCK.balance.api.pullDepth(GRAB.desired);
+    }
+    return;
+  }
+  const hit = pickAny(pointerRay(ev));
+  canvas.classList.toggle('grabbable', !!hit.chain || !!hit.soft || !!hit.twist);
+}, true);
+
+/* ── which button does what ────────────────────────────────────────────────
+   THE LEFT BUTTON DOES EVERYTHING IT ALWAYS DID: orbit, an arm, a foot, the
+   sternum handle, and her flesh. That is not negotiable and it must not be
+   quietly narrowed again.
+
+   It was, in v27, and it was wrong twice over. The balance session moved the
+   soft tissue to the right button because Luca said of THAT build "of course
+   when I do a left-click, it rotates her or grabs things", and I carried the
+   change across to this one — where he had never asked for it, and where he
+   promptly could not reach her chest or her hips at all. Worse, `ev.button` is
+   0 for touch: on a phone there is no right button, so the flesh would have
+   been unreachable on half the platforms this thing is for.
+
+   The right button is now purely ADDITIVE — a second way to reach flesh that an
+   arm or the sternum handle would otherwise win, for when her forearm is
+   hanging over the exact place you meant. It takes nothing away. OrbitControls
+   pans on right by default, so that is turned off: a right-drag that misses her
+   should do nothing rather than slide the camera sideways.
+
+   Which button decides WHAT can be picked, not merely whether. Scoring them
+   together and then filtering would let the arm beat the flesh behind it and
+   leave the right-drag doing nothing at all. */
+let rightStroke = true;
+canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
+controls.mouseButtons.RIGHT = null;
+addEventListener('pointerdown', (ev) => {
+  if (!GRAB.on || !charRoot || ev.target !== canvas) return;
+  const ray = pointerRay(ev);
+  const hit = pickAny(ray);
+  const stroking = rightStroke && ev.button === 2;
+  const ch = stroking ? null : hit.chain;
+  const soft = stroking ? (hit.soft || pickSoft(ray)) : hit.soft;
+  if (stroking) hit.twist = false;
+  if (!ch && !soft && !hit.twist) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  controls.enabled = false;
+
+  if (hit.twist){
+    canvas.classList.add('grabbing');
+    try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
+    BLOCK.twist.api.twistDown(ev);
+    return;
+  }
+
+  if (soft){
+    const st = jigState.get(soft);
+    softDrag = soft;
+    GRAB.active = true;
+    canvas.classList.add('grabbing');
+    try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
+    camera.getWorldDirection(_da);
+    GRAB.plane.setFromNormalAndCoplanarPoint(_da, st.pick);
+    if (ray.intersectPlane(GRAB.plane, _p0)) GRAB.offset.subVectors(st.pick, _p0);
+    else GRAB.offset.set(0, 0, 0);
+    st.target.set(0, 0, 0); st.slipT = 0;
+    return;
+  }
+  canvas.classList.add('grabbing');
+  try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
+
+  const R = bone(ch.root), M = bone(ch.mid), Eb = bone(ch.end);
+  R.getWorldPosition(_p0); M.getWorldPosition(_p1); Eb.getWorldPosition(_p2);
+  GRAB.armLen = _p0.distanceTo(_p1) + _p1.distanceTo(_p2);
+  GRAB.chain = ch; GRAB.active = true; GRAB.releaseT = -1;
+  GRAB.pos.copy(_p2); GRAB.vel.set(0, 0, 0);
+  GRAB.lag = [0, 0, 0, 0];
+  // seed the pole from where the elbow actually is, so the solve starts from
+  // her current arm shape rather than snapping to a canonical one
+  _da.subVectors(_p2, _p0).normalize();
+  _db.subVectors(_p1, _p0);
+  GRAB.poleRef.copy(_db).addScaledVector(_da, -_da.dot(_db));
+  if (GRAB.poleRef.lengthSq() < 1e-6) GRAB.poleRef.copy(ch.pole);
+  GRAB.poleRef.normalize();
+
+  camera.getWorldDirection(_da);
+  GRAB.plane.setFromNormalAndCoplanarPoint(_da, _p2);
+  if (ray.intersectPlane(GRAB.plane, _p0)) GRAB.offset.subVectors(_p2, _p0);
+  else GRAB.offset.set(0, 0, 0);
+  GRAB.desired.copy(_p2);
+});
+
+function endGrab(ev){
+  if (BLOCK.twist && BLOCK.twist.api.twistState.dragging){
+    BLOCK.twist.api.twistUp();
+    controls.enabled = true;
+    canvas.classList.remove('grabbing');
+    try {
+      if (ev && ev.pointerId !== undefined && canvas.hasPointerCapture(ev.pointerId))
+        canvas.releasePointerCapture(ev.pointerId);
+    } catch (e) {}
+    return;
+  }
+  if (!GRAB.active) return;
+  GRAB.active = false;
+  if (softDrag){
+    // let go: the spring target snaps home and the tissue oscillates back
+    const st = jigState.get(softDrag);
+    if (st) st.target.set(0, 0, 0);
+    softDrag = null;
+    controls.enabled = true;
+    canvas.classList.remove('grabbing');
+    try {
+      if (ev && ev.pointerId !== undefined && canvas.hasPointerCapture(ev.pointerId))
+        canvas.releasePointerCapture(ev.pointerId);
+    } catch (e) {}
+    return;
+  }
+  GRAB.releaseT = 0;
+  controls.enabled = true;
+  canvas.classList.remove('grabbing');
+  try {
+    if (ev && ev.pointerId !== undefined && canvas.hasPointerCapture(ev.pointerId))
+      canvas.releasePointerCapture(ev.pointerId);
+  } catch (e) {}
+}
+addEventListener('pointerup', endGrab, true);
+addEventListener('pointercancel', endGrab, true);
+
+window.__stage = { GRAB, JIG, CHAINS, JIGGLE, jigState, bones, camera, controls,
+                   BLOCK, addBase,
+                   playBase: (n) => playBase(n), pickChain, pickSoft, pickAny, pointerRay,
+                   segHit, solveArm, applyJiggle, ray: _ray,
+                   get mixer(){ return mixer; }, baseActions,
+                   // softDrag is module-local, so the probes need a way in
+                   __softDrag: () => softDrag,
+                   __setSoftDrag: (n) => { softDrag = n; },
+                   slipGrip, REGION, SOFT_PICK,
+                   applyGrab, endGrab, chainDist, softScore,
+                   get charRoot(){ return charRoot; },
+                   get current(){ return current; },
+                   get rightStroke(){ return rightStroke; },
+                   set rightStroke(v){ rightStroke = v; },
+                   /* Probes have to own the clock. Software GL in the container
+                      runs at ~1 fps and the loop clamps dt to 0.1 s, so leaving
+                      it running while stepping systems by hand interleaves
+                      100 ms frames with the 1/60 s ones being measured. */
+                   stopLoop: () => renderer.setAnimationLoop(null),
+                   renderOnce: () => { if (usePost) composer.render(0);
+                                       else renderer.render(scene, camera); } };
+
+function playBase(name, fade){
+  const nxt = baseActions.get(name);
+  if (!nxt || nxt === current) return;
+  nxt.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+  if (current) current.crossFadeTo(nxt, fade === undefined ? fadeTime : fade, false);
+  current = nxt;
+  markRail(name);
+}
+
+function markRail(name){
+  document.querySelectorAll('#clipRail button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.clip === name)));
+}
+
+function buildRail(){
+  const rail = $('clipRail');
+  rail.innerHTML = '';
+  const names = [...baseActions.keys()].sort((a, b) => {
+    const ord = ['Idle_Shy','Idle_Sides','Idle_Sway','Idle_Belly','Idle_HairTouch',
+                 'Walk_Pace','Step_Settle'];
+    return (ord.indexOf(a) + 1 || 99) - (ord.indexOf(b) + 1 || 99);
+  });
+  for (const n of names){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.clip = n;
+    b.dataset.kind = /^(Step|Walk)/.test(n) ? 'move' : 'idle';
+    b.textContent = LABEL[n] || n.replace(/^[A-Za-z]+_/, '');
+    b.setAttribute('aria-pressed', 'false');
+    b.title = `${n} · ${clipMeta.get(n).duration.toFixed(1)}s`;
+    b.addEventListener('click', () => { shuffleAcc = 0; playBase(n); });
+    rail.appendChild(b);
+  }
+}
+
+/* ───────────────────────── framing ───────────────────────── */
+const FRAMES = { full:{look:.52,dist:2.3}, three:{look:.70,dist:1.5}, bust:{look:.875,dist:.92}, close:{look:.935,dist:.55} };
+let currentFrame = 'full', camGoal = null;
+
+function frameSubject(obj){
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = new THREE.Vector3(), c = new THREE.Vector3();
+  box.getSize(size); box.getCenter(c);
+  obj.position.x -= c.x; obj.position.z -= c.z; obj.position.y -= box.min.y;
+  subjectHeight = size.y || 1.7;
+  const r = Math.max(size.x, size.z, subjectHeight * .5) * .85 + .4;
+  const sc = key.shadow.camera;
+  sc.left = -r; sc.right = r; sc.top = r; sc.bottom = -r;
+  sc.near = .5; sc.far = 12; sc.updateProjectionMatrix();
+  applyFrame(currentFrame, true);
+}
+
+function applyFrame(name, instant){
+  currentFrame = name;
+  const f = FRAMES[name];
+  const y = subjectHeight * f.look;
+  const d = f.dist * subjectHeight * (35 / camera.fov) * .6 + subjectHeight * .2;
+  const dir = new THREE.Vector3().subVectors(camera.position, controls.target);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-6) dir.set(.2, 0, 1);
+  dir.normalize();
+  const gt = new THREE.Vector3(0, y, 0);
+  const gp = new THREE.Vector3(dir.x * d, y + subjectHeight * .035, dir.z * d);
+  if (instant || reduced){ controls.target.copy(gt); camera.position.copy(gp); camGoal = null; }
+  else camGoal = { pos:gp, target:gt, t:0 };
+  refreshRig();
+}
+
+/* ───────────────────────── panel construction ───────────────────────── */
+const TONE = { agx:THREE.AgXToneMapping, aces:THREE.ACESFilmicToneMapping,
+  neutral:THREE.NeutralToneMapping, reinhard:THREE.ReinhardToneMapping, linear:THREE.LinearToneMapping };
+
+let el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+function section(title, open){
+  const d = el('details'); d.open = !!open;
+  d.appendChild(el('summary', null, title));
+  const b = el('div', 'body');
+  d.appendChild(b);
+  $('panels').appendChild(d);
+  return b;
+}
+
+function slider(parent, id, label, min, max, step, value, fmt, fn){
+  const row = el('div', 'row');
+  const lab = el('label', null, label); lab.htmlFor = id;
+  const out = el('span', 'val');
+  const inp = document.createElement('input');
+  Object.assign(inp, { type:'range', id, min, max, step, value });
+  row.append(lab, out, inp); parent.appendChild(row);
+  const run = () => { const v = parseFloat(inp.value); out.textContent = fmt(v); fn(v); };
+  inp.addEventListener('input', run); run();
+  return inp;
+}
+function colour(parent, id, label, value, fn){
+  const row = el('div', 'toggle');
+  const lab = el('label', null, label); lab.htmlFor = id;
+  const inp = document.createElement('input');
+  Object.assign(inp, { type:'color', id, value });
+  row.append(lab, inp); parent.appendChild(row);
+  const run = () => fn(inp.value);
+  inp.addEventListener('input', run); run();
+  return inp;
+}
+function toggle(parent, id, label, value, fn){
+  const row = el('div', 'toggle');
+  const lab = el('label', null, label); lab.htmlFor = id;
+  const inp = document.createElement('input');
+  Object.assign(inp, { type:'checkbox', id, checked:value }); inp.className = 'switch';
+  row.append(lab, inp); parent.appendChild(row);
+  inp.addEventListener('change', () => fn(inp.checked));
+  return inp;
+}
+function picker(parent, id, label, opts, value, fn){
+  if (label){ const r = el('div','row'); const l = el('label',null,label); l.htmlFor=id; r.appendChild(l); parent.appendChild(r); }
+  const s = document.createElement('select'); s.id = id;
+  for (const [v, t] of opts){ const o = document.createElement('option'); o.value = v; o.textContent = t; s.appendChild(o); }
+  s.value = value; parent.appendChild(s);
+  s.addEventListener('change', () => fn(s.value));
+  return s;
+}
+
+const state = {};  // everything the Copy-look button reports
+
+function buildPanels(){
+  /* — Motion — */
+  if (baseActions.size){
+    const mb = section('Motion', true);
+    toggle(mb,'playing','Playing',true,v=>{
+      const sp = $('speed');
+      timeScale = v ? parseFloat(sp ? sp.value : 0.5) : 0;
+    });
+    slider(mb,'fade','Cross-fade',0.05,2.5,.01,fadeTime,v=>v.toFixed(2)+'s',v=>{ fadeTime=v; });
+    slider(mb,'speed','Speed',0,2,.01,0.5,v=>v.toFixed(2)+'×',v=>{
+      const pl = $('playing');
+      if (!pl || pl.checked) timeScale = v;
+    });
+    toggle(mb,'shuffleOn','Shuffle idles',false,v=>{ shuffle=v; shuffleAcc=0; });
+    slider(mb,'shuffleEvery','Shuffle every',5,40,1,15,v=>Math.round(v)+'s',v=>{ shuffleEvery=v; });
+    toggle(mb,'followRoot','Follow her when she moves',true,v=>{ followRoot=v; });
+    mb.appendChild(el('p','note','Pick a clip from the rail at the bottom. Shuffle drifts between the idles on its own so you can watch the transitions. Pace carries real root motion — the camera pans with her.'));
+  }
+
+  /* — Touch — */
+  {
+    const tb = section('Touch', true);
+    tb.appendChild(el('p','note','Drag a forearm or hand — the cursor changes when you are over one. It solves to your pointer, drags her body when you pull past comfortable reach, and springs back to the animation when you let go. The upper arm is deliberately not grabbable so it cannot steal a pick aimed at her chest.'));
+    toggle(tb,'grabOn','Grab enabled',true,v=>{ GRAB.on=v; if(!v) endGrab(); });
+    slider(tb,'grabPull','Body follow',0,1.5,.01,GRAB.bodyPull,v=>v.toFixed(2),v=>{ GRAB.bodyPull=v; });
+    slider(tb,'grabStiff','Arm stiffness',40,400,1,GRAB.stiffness,v=>Math.round(v),v=>{ GRAB.stiffness=v; });
+    slider(tb,'grabDamp','Damping',6,45,.5,GRAB.damping,v=>v.toFixed(1),v=>{ GRAB.damping=v; });
+    slider(tb,'grabReturn','Return time',0.15,2.5,.01,GRAB.returnTime,v=>v.toFixed(2)+'s',v=>{ GRAB.returnTime=v; });
+    slider(tb,'grabWobble','Settle wobble',0,0.6,.01,GRAB.wobble,v=>v.toFixed(2),v=>{ GRAB.wobble=v; });
+    tb.appendChild(el('p','note','Soft tissue grabs too \u2014 chest, either cheek, the upper thigh, the belly. Your grip is a force, not a handle: it follows you closely at first, then drags, then stops coming any further however far you go. A hip or thigh never lets go until you do; the chest will slip out of your hand if you outrun it. Everything springs back on release, and the lower body comes back heavier and slower than the chest.'));
+    toggle(tb,'jigOn','Jiggle',true,v=>{ JIG.on=v; });
+    slider(tb,'jigBreast','Chest',0,2,.01,JIG.breast,v=>v.toFixed(2),v=>{ JIG.breast=v; });
+    slider(tb,'jigGlute','Hips',0,2,.01,JIG.glute,v=>v.toFixed(2),v=>{ JIG.glute=v; });
+    slider(tb,'jigThigh','Upper thigh',0,2,.01,JIG.thigh,v=>v.toFixed(2),v=>{ JIG.thigh=v; });
+    slider(tb,'jigBelly','Belly',0,2,.01,JIG.belly,v=>v.toFixed(2),v=>{ JIG.belly=v; });
+    slider(tb,'jigDamp','Overall damping',0.4,2.2,.01,JIG.damping,v=>v.toFixed(2)+'×',v=>{ JIG.damping=v; });
+    slider(tb,'jigBulge','Belly bulge',0,1,.005,0,v=>v.toFixed(3),v=>{ JIG.bulge=v; });
+    /* How hard your fingers hold, and how far the flesh will come — the two
+       numbers that set how RESPONSIVE a grab feels, as opposed to how much it
+       wobbles afterwards, which is what the four sliders above do.
+
+       Where the flesh settles is `grip.force x axis / stiffness`: the cheek's
+       7.8 against 95, times its 1.35 lateral compliance, is 111 mm, which is
+       exactly what it measures. `max` is the hard ceiling on top of that, and
+       raising strength without raising reach just runs you into it. Both are
+       multipliers on the settled per-region values, so 1.00 is untouched and
+       every region keeps its own character. */
+    const SOFT0 = new Map(Object.entries(REGION).map(
+      ([k, r]) => [k, { force: r.grip.force, max: r.max }]));
+    slider(tb,'jigGrip','Grab strength',0.4,2.5,.01,GRAB_STRENGTH0,v=>v.toFixed(2)+'×',v=>{
+      for (const [k, r] of Object.entries(REGION)) r.grip.force = SOFT0.get(k).force * v;
+    });
+    slider(tb,'jigReach','Grab reach',0.4,2.5,.01,GRAB_REACH0,v=>v.toFixed(2)+'×',v=>{
+      for (const [k, r] of Object.entries(REGION)) r.max = SOFT0.get(k).max * v;
+    });
+    tb.appendChild(el('p','note','Strength is how hard your fingers hold before the flesh stops coming; reach is the ceiling it stops at — and the two are not interchangeable. Where flesh settles is set by STRENGTH; reach only matters where the ceiling was cutting it short, which at 1.00 is the chest and nothing else. So reach 1.44 is what lets the chest reach its natural 55 mm instead of being clipped at 52, and strength is the only knob that moves the cheek. Measured on a full pull: strength 1.00 settles the left cheek 111 mm out, and the 0.92 it ships at gives 102 mm. Going higher buys travel and pays for it in creasing through the cleft: 111 mm adds 34 faces over 40°, 131 mm adds 50, and the animation build’s heavier paint added 232 at the same travel.'));
+  }
+
+  /* — the portable blocks ————————————————————————————————————————————
+     Generated rather than hand-authored. Each block publishes a plain settings
+     object of numbers and booleans, and the hair session keeps adding to them;
+     a hand-written panel would be stale by the next commit and Luca would be
+     tuning a subset without knowing which. The range is derived from the
+     default, which is crude but honest — these are his settled values, so the
+     useful span is around them. */
+  /* Significant figures rather than decimal places: `toFixed(3)` renders
+     TWIST.gain's whole useful range as "0.002", so the readout said nothing
+     while the slider was being moved. */
+  const numFmt = (x) => {
+    const a = Math.abs(x);
+    if (a === 0) return '0';
+    if (a >= 100) return x.toFixed(0);
+    if (a >= 1) return x.toFixed(2);
+    return x.toPrecision(3).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  };
+  function blockPanel(title, S, open, notes){
+    if (!S) return;
+    const b = section(title, !!open);
+    if (notes) b.appendChild(el('p','note',notes));
+    for (const k of Object.keys(S)){
+      const v = S[k];
+      if (typeof v === 'boolean'){
+        toggle(b, 'bp_'+title+'_'+k, NICE_KEY[k] || k, v, (x) => { S[k] = x; });
+      } else if (typeof v === 'number' && isFinite(v)){
+        /* ⚠ THE STEP HAS TO DIVIDE THE DEFAULT EXACTLY. An <input type="range">
+           snaps its value to a multiple of `step`, and `slider()` runs its
+           callback once at creation to seed the readout — so a default that is
+           not on a step gets written straight back into the block, quantised,
+           the instant the panel is built. Anything smaller than half a step
+           becomes ZERO.
+
+           That is not hypothetical. The old rule was hi = max(1, |v|*3) with
+           step = range/200, which gives a step of 0.005 for everything under a
+           third. `TWIST.gain` is 0.0022 rad per pixel of drag — so it was set
+           to 0 on page load, and the sternum drag did nothing at all from v26
+           until Luca reported it. It survived every check because every test of
+           the roll drove it through `Companion.twist.set()`, which never touches
+           `gain`. `probe_panel_snap.py` now compares every live setting against
+           a freshly imported copy of its own block and is the standing guard.
+
+           Both ends come off the default instead: the range is 4x it, so the
+           handle sits a quarter along with real headroom above, and the step is
+           a four-hundredth of the range — which puts a positive default exactly
+           100 steps from the floor and a negative one exactly 150. */
+        const mag = Math.abs(v);
+        const hi = mag < 1e-9 ? 1 : mag * 4;
+        const lo = v < 0 ? -hi : 0;
+        const step = (hi - lo) / 400;
+        const inp = slider(b, 'bp_'+title+'_'+k, NICE_KEY[k] || k, lo, hi, step, v,
+                           numFmt, (x) => { S[k] = x; });
+        // the tripwire, so this class of bug announces itself next time
+        if (inp && Math.abs(parseFloat(inp.value) - v) > Math.abs(v) * 1e-6){
+          console.warn('panel snapped ' + title + '.' + k + ': ' + v + ' -> '
+                       + inp.value + ' (step ' + step + ')');
+          S[k] = v;
+        }
+      }
+    }
+    return b;
+  }
+  const NICE_KEY = {
+    on:'On', intensity:'Intensity', bias:'Steers the gaze', hold:'Holds it',
+    express:'Fires expressions', stiffness:'Stiffness', damping:'Damping',
+    gain:'Gain', max:'Maximum', twist:'Twist', tipLag:'Tip lag',
+    tipRatio:'Tip ratio', tipDamp:'Tip damping', rootFrac:'Root fraction',
+    curve:'Falloff curve', drift:'Idle drift', armScale:'Arm scale',
+    collide:'Collision', focus:'Focus up the spine', hips:'Hips take',
+    knee:'Knee softening', pickR:'Handle radius', pickBias:'Handle bias',
+  };
+
+  /* — Balance —————————————————————————————————————————————————————————
+     Hand-authored rather than generated, unlike the four blocks above: BAL is
+     two hundred keys deep and half of them are distances in metres, which the
+     generated panel would render as a 0–3 slider reading "0.145". These are the
+     balance session's own labels, units and ranges, ported unchanged. */
+  if (BLOCK.balance){
+    const BAL = BLOCK.balance.api.BAL;
+    const bb = section('Balance', true);
+    bb.appendChild(el('p','note','Her legs are live. Pull a forearm slowly to the side: the pelvis springs after your hand, the planted feet stay exactly where they are, and the knees absorb it. Pull further and her centre of mass leaves the polygon under her feet, and she steps to get back under herself. Lift her hand high and the heels come up before the knees lock.'));
+    toggle(bb,'balOn','Balance enabled',true,v=>{ BAL.on=v; });
+    toggle(bb,'balShow','Show centre of mass',false,v=>{
+      BAL.show=v;
+      if (!v){ const g = BLOCK.balance.api.balDbgGroup(); if (g) g.visible = false; }
+    });
+    toggle(bb,'rightStroke','Right-drag also reaches her flesh',true,v=>{ rightStroke=v; });
+    bb.appendChild(el('p','note','The left button does everything it always did — orbit, an arm, a foot, the sternum handle and her flesh. The right button is an extra way to reach flesh that an arm or the sternum handle would otherwise win, for when her forearm is hanging over the exact place you meant.'));
+    slider(bb,'balPull','Pelvis follow',0,0.45,.005,BAL.pull,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.pull=v; });
+    slider(bb,'balLift','Lift follow',0,0.45,.005,BAL.lift,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.lift=v; });
+    slider(bb,'balSlack','Dead zone',0,0.45,.005,BAL.slack,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.slack=v; });
+    slider(bb,'balEase','Ease-in distance',0.05,0.70,.005,BAL.ease,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.ease=v; });
+    slider(bb,'balSlackY','Lift dead zone',0,0.40,.005,BAL.slackY,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.slackY=v; });
+    slider(bb,'balCarry','Keeps coming',0,0.9,.01,BAL.carry,v=>v.toFixed(2),v=>{ BAL.carry=v; });
+    slider(bb,'balRootTau','Body catches up',0.1,1.5,.05,BAL.rootTau,v=>v.toFixed(2)+'s',v=>{ BAL.rootTau=v; });
+    slider(bb,'balStiff','Pelvis stiffness',30,400,1,BAL.stiffness,v=>Math.round(v),v=>{ BAL.stiffness=v; });
+    slider(bb,'balDamp','Pelvis damping',5,50,.5,BAL.damping,v=>v.toFixed(1),v=>{ BAL.damping=v; });
+    slider(bb,'balHipRoll','Hip tilt onto stance leg',0,10,.1,BAL.hipRoll,v=>v.toFixed(1)+'°',v=>{ BAL.hipRoll=v; });
+    slider(bb,'balTrig','Step trigger',0,0.06,.001,BAL.trigger,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.trigger=v; });
+    slider(bb,'balStepT','Step time',0.15,0.7,.01,BAL.stepTime,v=>v.toFixed(2)+'s',v=>{ BAL.stepTime=v; });
+    slider(bb,'balStepH','Step clearance',0,0.14,.005,BAL.stepHeight,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.stepHeight=v; });
+    slider(bb,'balLead','Step lead',0,0.5,.01,BAL.stepLead,v=>v.toFixed(2)+'s',v=>{ BAL.stepLead=v; });
+    slider(bb,'balWide','Step width',0,0.16,.005,BAL.stepWide,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.stepWide=v; });
+    slider(bb,'balHeel','Shoe pitch available',0,40,1,BAL.heelMax,v=>Math.round(v)+'°',v=>{ BAL.heelMax=v; });
+    slider(bb,'balLegMax','Max leg extension',0.94,0.998,.001,BAL.legMax,v=>(v*100).toFixed(1)+'%',v=>{ BAL.legMax=v; });
+    slider(bb,'balHeelLoad','Free-heel peel',0,30,.5,BAL.heelLoad,v=>v.toFixed(1)+'°',v=>{ BAL.heelLoad=v; });
+    slider(bb,'balFootW','Foot half-width',0.015,0.08,.001,BAL.footWidth,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.footWidth=v; });
+    slider(bb,'balFootT','Toe ahead of ball',0,0.12,.001,BAL.footToe,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.footToe=v; });
+    slider(bb,'balFootH','Heel behind ball',0.02,0.18,.001,BAL.footHeel,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.footHeel=v; });
+    slider(bb,'balHome','Settle time',0.2,3,.05,BAL.homeTime,v=>v.toFixed(2)+'s',v=>{ BAL.homeTime=v; });
+    slider(bb,'balTidy','Tidy-step threshold',0.01,0.12,.001,BAL.tidy,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.tidy=v; });
+    slider(bb,'balComfort','Lean she will hold',0.02,0.30,.005,BAL.comfort,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.comfort=v; });
+    bb.appendChild(el('p','note','Drag her hand and nothing happens for the first Dead zone — that is her arm taking it up, not her. Over the next Ease-in distance her body comes with you along a curve that starts flat, so there is no point where it switches on. Keeps coming is what happens past that. Step trigger is how far outside her own footprint the centre of mass gets before she moves a foot; Step lead is how far ahead of the mass she aims the landing, because a step planted where she already is arrives too late.'));
+
+    const sb = section('Balance — stumble & turn', false);
+    sb.appendChild(el('p','note','Drag her fast and she stops being careful: she throws a foot out, plants it across her other one, deliberately lands short and needs another. She tracks sideways and forwards only — she will not walk backwards and, by default, will not turn. Turning is still in there behind a slider, but it kept finding ways to walk her backwards, so it is off.'));
+    slider(sb,'balStumble','Stumble',0,1.5,.01,BAL.stumble,v=>v.toFixed(2),v=>{ BAL.stumble=v; });
+    slider(sb,'balFast','Speed that counts as a yank',0.2,3,.05,BAL.fast,v=>v.toFixed(2)+' m/s',v=>{ BAL.fast=v; });
+    slider(sb,'balCross','Cross her own feet by',0,0.25,.005,BAL.crossMax,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.crossMax=v; });
+    slider(sb,'balShort','Step falls short by',0,0.6,.01,BAL.shortfall,v=>v.toFixed(2),v=>{ BAL.shortfall=v; });
+    slider(sb,'balStepTF','Catch-step time',0.08,0.4,.01,BAL.stepTimeFast,v=>v.toFixed(2)+'s',v=>{ BAL.stepTimeFast=v; });
+    slider(sb,'balLeadF','Catch-step lead',0,0.8,.01,BAL.leadFast,v=>v.toFixed(2)+'s',v=>{ BAL.leadFast=v; });
+    slider(sb,'balJolt','Catch overshoot',0,1.2,.02,BAL.jolt,v=>v.toFixed(2),v=>{ BAL.jolt=v; });
+    toggle(sb,'balFeet','Her feet are grabbable',true,v=>{ BAL.feet=v; });
+    slider(sb,'balFootPick','Foot grab radius',0.03,0.18,.005,BAL.footPick,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.footPick=v; });
+    slider(sb,'balFootLift','How high you can lift a foot',0.05,0.7,.01,BAL.footLift,v=>(v*100).toFixed(0)+' cm',v=>{ BAL.footLift=v; });
+    slider(sb,'balTurn','Turn to follow (off)',0,1.5,.01,BAL.turn,v=>v.toFixed(2),v=>{ BAL.turn=v; });
+    slider(sb,'balStepBack','Furthest a foot goes back',0,0.2,.005,BAL.stepBack,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.stepBack=v; });
+    slider(sb,'balTurnAfter','Side-steps before turning',0,0.6,.01,BAL.turnAfter,v=>(v*100).toFixed(0)+' cm',v=>{ BAL.turnAfter=v; });
+    slider(sb,'balTurnRate','Turn rate',20,400,5,BAL.turnRate,v=>Math.round(v)+'°/s',v=>{ BAL.turnRate=v; });
+    slider(sb,'balTwist','Re-plant past twist of',10,70,1,BAL.yawTwist,v=>Math.round(v)+'°',v=>{ BAL.yawTwist=v; });
+    slider(sb,'balPivot','Pivot on the spot',0,4,.05,BAL.pivot,v=>v.toFixed(2),v=>{ BAL.pivot=v; });
+    slider(sb,'balFallG','Foot falls at',1,20,.2,BAL.fallG,v=>v.toFixed(1)+' m/s²',v=>{ BAL.fallG=v; });
+    slider(sb,'balCatchDip','Knees absorb the drop',0,1,.01,BAL.catchDip,v=>v.toFixed(2),v=>{ BAL.catchDip=v; });
+    slider(sb,'balArmCatch','Free arm catches her',0,2,.01,BAL.armCatch,v=>v.toFixed(2),v=>{ BAL.armCatch=v; });
+    slider(sb,'balCatchGain','How big a catch a landing is',0,1.2,.01,BAL.catchGain,v=>v.toFixed(2),v=>{ BAL.catchGain=v; });
+    slider(sb,'balCatchRise','Catch eases in over',0.02,0.6,.01,BAL.catchRise,v=>v.toFixed(2)+'s',v=>{ BAL.catchRise=v; });
+    slider(sb,'balDipTime','Landing impulse spread',0.02,0.4,.01,BAL.dipTime,v=>v.toFixed(2)+'s',v=>{ BAL.dipTime=v; });
+    slider(sb,'balUnweight','Lifts the unloaded foot',0,0.14,.002,BAL.unweight,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.unweight=v; });
+    slider(sb,'balArmHome','Elbow settles back at',0,0.5,.005,BAL.armHome,v=>v.toFixed(3),v=>{ BAL.armHome=v; });
+    slider(sb,'balHoistHold','Balances rather than steps below',0,1,.01,BAL.hoistHold,v=>v.toFixed(2),v=>{ BAL.hoistHold=v; });
+    slider(sb,'balUnweightArm','…or just the arm you hold',0,1,.01,BAL.unweightArm,v=>v.toFixed(2),v=>{ BAL.unweightArm=v; });
+    slider(sb,'balUnweightDead','…past this much sideways',0,0.25,.005,BAL.unweightDead,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.unweightDead=v; });
+    slider(sb,'balUnweightSide','…fully committed by',0.02,0.5,.01,BAL.unweightSide,v=>(v*100).toFixed(0)+' cm',v=>{ BAL.unweightSide=v; });
+    slider(sb,'balSeekHeld','Leans after a held foot',0,2,.01,BAL.seekHeld,v=>v.toFixed(2),v=>{ BAL.seekHeld=v; });
+    slider(sb,'balSeek','…and when she could step instead',0,1,.01,BAL.seek,v=>v.toFixed(2),v=>{ BAL.seek=v; });
+    slider(sb,'balSeekMax','Most of it at once',0.02,0.3,.005,BAL.seekMax,v=>(v*100).toFixed(1)+' cm',v=>{ BAL.seekMax=v; });
+    slider(sb,'balPlaceHold','Keeps a foot where you put it',0.5,12,.1,BAL.placeHold,v=>v.toFixed(1)+'s',v=>{ BAL.placeHold=v; });
+    slider(sb,'balHide','Her body hides what is behind it',0,2,.02,BAL.hide,v=>v.toFixed(2)+'×',v=>{ BAL.hide=v; });
+    slider(sb,'balJaw','Mouth opens when lifted',0,1.5,.01,BAL.jaw,v=>v.toFixed(2),v=>{ BAL.jaw=v; });
+    slider(sb,'balFwd','Pull from in front',0,1,.01,BAL.fwdGain,v=>v.toFixed(2),v=>{ BAL.fwdGain=v; });
+    slider(sb,'balDepth','Down = toward you',0,1,.01,BAL.depth,v=>v.toFixed(2),v=>{ BAL.depth=v; });
+    slider(sb,'balBack','Pull from behind',0,1,.01,BAL.back,v=>v.toFixed(2),v=>{ BAL.back=v; });
+    slider(sb,'balCamDead','Camera dead zone',0,0.5,.01,BAL.camDead,v=>(v*100).toFixed(0)+' cm',v=>{ BAL.camDead=v; });
+    slider(sb,'balCamRate','Camera follow rate',0.3,8,.1,BAL.camRate,v=>v.toFixed(1),v=>{ BAL.camRate=v; });
+    slider(sb,'balCamLean','Camera follows lean',0,1,.01,BAL.camLean,v=>v.toFixed(2),v=>{ BAL.camLean=v; });
+    sb.appendChild(el('p','note','Her body hides what is behind it is the occlusion test on her arms: a forearm tucked behind her back no longer takes a drag aimed at her belly. "Watches your hand" is not here — it is the balance layer\'s own head turn, and the gaze block owns her head now.'));
+
+    /* Her face, driven from her body. The expressions themselves are the face
+       block's and nothing here authors one — this is what FIRES them. */
+    const tb = section('Balance — how her body drives her face', false);
+    tb.appendChild(el('p','note','Being hauled upward reads as surprise, a landing she has to catch reads as worry, and when her eyes come back to you she is allowed to be a little put out about it. Her body answers: the chest curls on a negative expression and the chin takes whatever the catalogue says the look does to her gaze. Where she is being touched feeds a running mood, so a long stroke and a sharp pull do not get the same face.'));
+    toggle(tb,'balFaceOn','Her body drives her face',true,v=>{ BAL.face=v; });
+    toggle(tb,'balTouchOn','Being touched changes it',true,v=>{ BAL.touch=v; });
+    try {
+      picker(tb,'faceMoodBal','Mood she draws from',
+        window.Companion.face.moods.map(m => [m, m[0].toUpperCase()+m.slice(1)]),
+        BLOCK.face.api.FACE.mood, v=>{ BLOCK.face.api.FACE.mood=v; });
+    } catch (e) {}
+    slider(tb,'balTouchStroke','A stroke is this far',0.01,0.2,.005,BAL.touchStroke,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.touchStroke=v; });
+    slider(tb,'balTouchWait','Contact counts after',0,1.5,.02,BAL.touchWait,v=>v.toFixed(2)+'s',v=>{ BAL.touchWait=v; });
+    slider(tb,'balTouchHold','It stays while you are there',0.4,8,.1,BAL.touchHold,v=>v.toFixed(1)+'s',v=>{ BAL.touchHold=v; });
+    slider(tb,'balTouchAfter','…and outlives you by',0,8,.1,BAL.touchAfter,v=>v.toFixed(1)+'s',v=>{ BAL.touchAfter=v; });
+    slider(tb,'balFaceHoist','Lifting changes her face',0,1,.01,BAL.faceHoist,v=>v.toFixed(2),v=>{ BAL.faceHoist=v; });
+    slider(tb,'balFaceLift','Fully surprised at',0.004,0.08,.001,BAL.faceLift,v=>(v*1000).toFixed(0)+' mm',v=>{ BAL.faceLift=v; });
+    slider(tb,'balFaceJolt','Landing that worries her',0.1,1,.01,BAL.faceJolt,v=>v.toFixed(2),v=>{ BAL.faceJolt=v; });
+    slider(tb,'balFaceAnnoy','Glance comes with a look',0,1,.01,BAL.faceAnnoy,v=>v.toFixed(2),v=>{ BAL.faceAnnoy=v; });
+    slider(tb,'balFaceHold','Expression holds for',0.3,4,.05,BAL.faceHold,v=>v.toFixed(2)+'s',v=>{ BAL.faceHold=v; });
+    slider(tb,'balFaceCool','Gap between reactions',0.2,5,.1,BAL.faceCool,v=>v.toFixed(1)+'s',v=>{ BAL.faceCool=v; });
+    slider(tb,'balAnswer','Body answers her face',0,2,.01,BAL.answer,v=>v.toFixed(2),v=>{ BAL.answer=v; });
+    slider(tb,'balAnswerCurl','Chest curl when low',0,8,.1,BAL.answerCurl,v=>v.toFixed(1)+'°',v=>{ BAL.answerCurl=v; });
+    slider(tb,'balAnswerHead','Chin follows the look',0,1.5,.01,BAL.answerHead,v=>v.toFixed(2),v=>{ BAL.answerHead=v; });
+    slider(tb,'balAnswerTau','Posture settles in',0.05,1.5,.05,BAL.answerTau,v=>v.toFixed(2)+'s',v=>{ BAL.answerTau=v; });
+  }
+
+  /* — Mood —————————————————————————————————————————————————————————————
+     Hand-authored for the read-out. Luca: "let's make it visible for right now
+     so I can track it easier" — and it is the only way to tune this by eye
+     rather than by faith. The canvas is the valence/arousal plane with the
+     routing boundaries drawn where they actually are, her feeling as a dot with
+     a fading trail, and the slow average she is classified on as a ring. */
+  if (BLOCK.mood){
+    const MD = BLOCK.mood.api.MD;
+    const mb = section('Mood', true);
+    mb.appendChild(el('p','note','How she feels, on three clocks. The dot is what she is reacting with right now; the ring is the slow average behind it; the label is the table that average names, and that table is what her feeling then drifts back toward. Ease only ever climbs — it is how comfortable she is with you, and it decides how far up the touch arc she will go at all.'));
+    const cv = document.createElement('canvas');
+    cv.width = 320; cv.height = 210;
+    cv.style.cssText = 'width:100%;height:auto;display:block;border-radius:8px;'
+                     + 'background:rgba(0,0,0,0.20);margin:2px 0 8px';
+    mb.appendChild(cv);
+    BLOCK.mood.api.moodCanvas(cv);
+    const l1 = el('p','note',''), l2 = el('p','note',''), l3 = el('p','note','');
+    const lg = el('pre','note','');
+    for (const e of [l1, l2, l3]) e.style.cssText = 'font-family:ui-monospace,monospace;margin:2px 0';
+    lg.style.cssText = 'font-family:ui-monospace,monospace;font-size:11px;opacity:.65;'
+                     + 'margin:6px 0 2px;white-space:pre-wrap';
+    mb.append(l1, l2, l3, lg);
+    setInterval(() => {
+      if (!BLOCK.mood) return;
+      const r = BLOCK.mood.api.moodReadout();
+      l1.textContent = r.line1; l2.textContent = r.line2; l3.textContent = r.line3;
+      lg.textContent = r.log.join('\n');
+    }, 250);
+
+    toggle(mb,'moodOn','Mood enabled',true,v=>{ MD.on=v; });
+    toggle(mb,'moodShow','Show the plane',true,v=>{ MD.show=v; cv.style.display = v?'block':'none'; });
+    toggle(mb,'moodKeepOut','Never let her look low',false,v=>{ MD.keepOut=v; });
+    mb.appendChild(el('p','note','The floor is off, so a rough session genuinely reads. `worried` is still excluded outright — that is the one you ruled out. This toggle puts sad, hurt and tired back behind the fence too.'));
+
+    mb.appendChild(el('p','note','The four dials reshape the whole event table at once, which is a great deal easier to find by feel than forty separate numbers.'));
+    slider(mb,'moodWarmth','Kindness counts for',0,3,.01,MD.warmth,v=>v.toFixed(2)+'×',v=>{ MD.warmth=v; });
+    slider(mb,'moodRough','Rough handling counts for',0,3,.01,MD.rough,v=>v.toFixed(2)+'×',v=>{ MD.rough=v; });
+    slider(mb,'moodLively','What winds her up',0,3,.01,MD.lively,v=>v.toFixed(2)+'×',v=>{ MD.lively=v; });
+    slider(mb,'moodCalm','What settles her',0,3,.01,MD.calm,v=>v.toFixed(2)+'×',v=>{ MD.calm=v; });
+
+    slider(mb,'moodTau','Feeling fades in',4,120,1,MD.tau,v=>Math.round(v)+'s',v=>{ MD.tau=v; });
+    slider(mb,'moodSlow','Disposition averages over',20,400,5,MD.slowTau,v=>Math.round(v)+'s',v=>{ MD.slowTau=v; });
+    slider(mb,'moodHold','…and must win for',2,60,1,MD.hold,v=>Math.round(v)+'s',v=>{ MD.hold=v; });
+    slider(mb,'moodHome','Comes home to warm faster by',0,0.9,.01,MD.homeBias,v=>v.toFixed(2),v=>{ MD.homeBias=v; });
+    slider(mb,'moodJit','Jitter',0,0.6,.01,MD.jitter,v=>v.toFixed(2),v=>{ MD.jitter=v; });
+
+    mb.appendChild(el('p','note','Habituation is what stops the fiftieth stroke being worth as much as the first; contrast is what makes a kind touch after rough handling land harder than the same touch after two calm minutes. Between them they are most of what keeps this from reading as a lookup table.'));
+    slider(mb,'moodFat','Repeating dulls it by',0,0.9,.01,MD.fatRise,v=>v.toFixed(2),v=>{ MD.fatRise=v; });
+    slider(mb,'moodFatT','…recovering over',5,180,1,MD.fatTau,v=>Math.round(v)+'s',v=>{ MD.fatTau=v; });
+    slider(mb,'moodCon','Contrast',0,2,.01,MD.contrast,v=>v.toFixed(2),v=>{ MD.contrast=v; });
+
+    mb.appendChild(el('p','note','Ease is the long clock — it only climbs, and only on things she liked. At low ease a long stroke tops out where a short one does; past about half, the fourth rung of each touch arc opens up.'));
+    slider(mb,'moodEase','Ease matters',0,2,.01,MD.ease,v=>v.toFixed(2)+'×',v=>{ MD.ease=v; });
+    slider(mb,'moodEaseG','…climbs at',0,0.3,.005,MD.easeGain,v=>v.toFixed(3),v=>{ MD.easeGain=v; });
+    slider(mb,'moodEaseT','…and forgets you over',60,2400,10,MD.easeTau,v=>(v/60).toFixed(1)+' min',v=>{ MD.easeTau=v; });
+
+    mb.appendChild(el('p','note','What the mood drives besides her face. Each is an authority: at zero the mood does not touch that system at all, which is how you tell whether the effect is earning its place.'));
+    slider(mb,'moodToGaze','…how long she holds your eye',0,2,.01,MD.toGaze,v=>v.toFixed(2),v=>{ MD.toGaze=v; });
+    slider(mb,'moodToIdle','…her idle drift',0,2,.01,MD.toIdle,v=>v.toFixed(2),v=>{ MD.toIdle=v; });
+    slider(mb,'moodToBal','…how quick she is to step',0,2,.01,MD.toBalance,v=>v.toFixed(2),v=>{ MD.toBalance=v; });
+    slider(mb,'moodToClip','…which idle she drifts into',0,3,.01,MD.toClip,v=>v.toFixed(2),v=>{ MD.toClip=v; });
+
+    slider(mb,'moodCool','Gap between expressions',0.2,5,.05,MD.cool,v=>v.toFixed(2)+'s',v=>{ MD.cool=v; });
+    slider(mb,'moodAlone','Left alone after',10,240,5,MD.aloneAfter,v=>Math.round(v)+'s',v=>{ MD.aloneAfter=v; });
+    slider(mb,'moodNear','Leaning in is inside',0.2,1.5,.01,MD.nearBy,v=>(v*100).toFixed(0)+' cm',v=>{ MD.nearBy=v; });
+  }
+
+  if (BLOCK.gaze) blockPanel('Gaze', BLOCK.gaze.api.GAZE, true,
+    'She commits to a look and keeps it rather than tracking you. Add_LookAround is off in Layers because two systems aiming one head disagree.');
+  if (BLOCK.face){
+    const fb = blockPanel('Face', BLOCK.face.api.FACE, false,
+      'Bone-driven, no shape keys. The gaze fires these when she arrives on you.');
+    try {
+      const list = window.Companion.face.list();
+      const chips = el('div','chips');
+      for (const e of list){
+        const c = el('button','chip', e.id); c.type = 'button';
+        c.addEventListener('click', () => window.Companion.face.play(e.id, {hold: 3}));
+        chips.appendChild(c);
+      }
+      fb.appendChild(el('p','note','Play one on demand:'));
+      fb.appendChild(chips);
+    } catch (e) {}
+  }
+  if (BLOCK.twist) blockPanel('Torso roll', BLOCK.twist.api.TWIST, false,
+    'Grab her sternum and drag: sideways turns her ribcage, up and down tips it, a circle makes her chest describe a cone. Her feet stay planted.');
+  if (BLOCK.hair) blockPanel('Hair motion', BLOCK.hair.api.HAIR, false,
+    'Swing, twist and a slower tip whip, with four collision spheres. Not strands — springs on the CPU and a few instructions in the vertex shader.');
+
+  /* — Layers — */
+  if (addActions.size){
+    const lb = section('Layers', true);
+    lb.appendChild(el('p','note','Additive overlays. These ride on top of whichever base clip is playing, so a new idle never has to re-author blinking or a glance.'));
+    const NICE = { Add_Blink:'Blink', Add_MouthIdle:'Mouth idle',
+                   Add_LookAround:'Look around', Add_Smirk:'Smirk' };
+    for (const [name, act] of addActions){
+      slider(lb, 'w_'+name, NICE[name] || name, 0, 1.5, .01,
+        ADD_DEFAULT[name] ?? 1, v => v.toFixed(2),
+        v => { addBase.set(name, v); act.setEffectiveWeight(v); });
+    }
+  }
+
+  /* — Response — */
+  let b = section('Response', true);
+  picker(b, 'tonemap', 'Tone mapping',
+    [['agx','AgX — filmic roll-off'],['aces','ACES Filmic'],['neutral','Khronos Neutral'],
+     ['reinhard','Reinhard'],['linear','Linear (no curve)']], 'agx',
+    v => { state.tonemap = v; renderer.toneMapping = TONE[v];
+           matsByName.forEach(m => m.needsUpdate = true); });
+  state.tonemap = 'agx';
+  slider(b,'exposure','Exposure',.1,3,.01,0.49,v=>v.toFixed(2),v=>{ state.exposure=v; renderer.toneMappingExposure=v; });
+  toggle(b,'postOn','Bloom',true,v=>{ state.bloom=v; usePost=v; });
+  slider(b,'bloomStr','Bloom strength',0,1.5,.01,.11,v=>v.toFixed(2),v=>{ state.bloomStrength=v; bloom.strength=v; });
+  slider(b,'bloomRad','Bloom radius',0,1.5,.01,.12,v=>v.toFixed(2),v=>{ state.bloomRadius=v; bloom.radius=v; });
+  slider(b,'bloomThr','Bloom threshold',0,2.0,.01,1.36,v=>v.toFixed(2),v=>{ state.bloomThreshold=v; bloom.threshold=v; });
+  state.bloom = true;
+
+  /* — Environment — */
+  b = section('Environment');
+  slider(b,'envInt','IBL intensity',0,3,.01,.18,v=>v.toFixed(2),v=>{ state.envIntensity=v; scene.environmentIntensity=v; });
+  slider(b,'envRot','IBL rotation',-180,180,1,62,v=>Math.round(v)+'°',v=>{
+    state.envRotation=v; const r=THREE.MathUtils.degToRad(v);
+    scene.environmentRotation.y=r; scene.backgroundRotation.y=r; });
+  picker(b,'bg','Backdrop',[['gradient','Studio sweep'],['void','Void'],['env','Environment']],'gradient',v=>{
+    state.backdrop=v; sweep.visible=(v==='gradient');
+    scene.background = v==='env' ? envRT.texture : (v==='void' ? new THREE.Color(0x0a0b0d) : null); });
+  state.backdrop='gradient';
+  slider(b,'bgTint','Backdrop value',0,.6,.005,.085,v=>v.toFixed(3),v=>{
+    state.backdropValue=v;
+    sweepU.uBottom.value.setRGB(v, v*.97, v*1.06);
+    sweepU.uTop.value.setRGB(v*.15, v*.16, v*.21);
+    scene.backgroundIntensity = .2 + v*3.2; });
+  slider(b,'bgPeak','Sweep centre',0,1,.01,.44,v=>v.toFixed(2),v=>{ state.backdropPeak=v; sweepU.uPeak.value=v; });
+
+  /* — lights — */
+  const lightSection = (id, label, s, light, dist, defInt) => {
+    const bb = section(label);
+    slider(bb, id+'Int','Intensity',0,14,.05,defInt,v=>v.toFixed(2),v=>{ light.intensity=v; });
+    slider(bb, id+'K','Temperature',1800,12000,50,s.k,v=>Math.round(v)+' K',v=>{ s.k=v; refreshRig(); });
+    slider(bb, id+'Az','Azimuth',-180,180,1,s.az,v=>Math.round(v)+'°',v=>{ s.az=v; refreshRig(); });
+    slider(bb, id+'El','Elevation',-20,88,1,s.el,v=>Math.round(v)+'°',v=>{ s.el=v; refreshRig(); });
+    return bb;
+  };
+  const kb = lightSection('key','Key light', rig.key, key, 4.2, 0.90);
+  slider(kb,'keySoft','Shadow softness',0,18,.1,4,v=>v.toFixed(1),v=>{ key.shadow.radius=v; });
+  slider(kb,'shadowOpacity','Shadow density',0,1,.01,.42,v=>v.toFixed(2),v=>{ floor.material.opacity=v; });
+  toggle(kb,'shadowsOn','Cast shadows',true,v=>{ renderer.shadowMap.enabled=v; matsByName.forEach(m=>m.needsUpdate=true); });
+  lightSection('fill','Fill light',  rig.fill, fill, 4.6, 4.60);
+  lightSection('rim', 'Rim light 1', rig.rim,  rim,  4.4, 8.75);
+  lightSection('rim2','Rim light 2', rig.rim2, rim2, 4.4, 1.05);
+  const kb2 = lightSection('kick','Kicker (low, warm)', rig.kick, kick, 3.2, 1.80);
+  kb2.appendChild(el('p','note','Sits below eye level and throws light upward. Starts at zero — bring it up for a harder, more theatrical read.'));
+
+  /* — material groups — */
+  for (const grp of GROUPS){
+    const live = grp.mats.map(n => matsByName.get(n)).filter(Boolean);
+    if (!live.length) continue;
+    const bb = section(grp.label, grp.open);
+    grp.state = {};
+    for (const k of grp.keys){
+      const c = CTRL[k]; if (!c) continue;
+      const id = grp.id + '_' + k;
+      const dv = grp.d[k];
+      if (c.type === 'color'){
+        colour(bb, id, c.label, dv, v => { grp.state[k]=v; live.forEach(m => applyKey(m, k, v)); });
+      } else {
+        slider(bb, id, c.label, c.min, c.max, c.step, dv,
+          v => v.toFixed(c.step < .01 ? 3 : 2),
+          v => { grp.state[k]=v; live.forEach(m => applyKey(m, k, v)); });
+      }
+    }
+  }
+
+  /* — Camera — */
+  b = section('Camera');
+  const FILM_H = 24;
+  slider(b,'fov','Focal length',16,85,1,35,
+    v => Math.round(FILM_H / (2*Math.tan(THREE.MathUtils.degToRad(v)/2))) + ' mm',
+    v => { state.fovDeg=v; camera.fov=v; camera.updateProjectionMatrix(); applyFrame(currentFrame, true); });
+  toggle(b,'orbit','Slow orbit',false,v=>{ controls.autoRotate=v; });
+  toggle(b,'grounded','Contact shadow',true,v=>{ floor.visible=v; });
+  toggle(b,'refsOn','Chrome + 18% grey balls',false,v=>{ refs.visible=v; });
+
+  /* — Performance — */
+  b = section('Performance');
+  picker(b,'quality','Render quality',
+    [['auto','Auto — targets 60 fps'],['high','High — full DPR'],['balanced','Balanced — 1.5× cap'],['battery','Battery — 1× cap']],
+    'auto', v => { autoQuality = v==='auto'; renderScale = 1;
+                   dprCap = v==='battery'?1 : v==='balanced'?1.5 : 2; resize(); });
+
+  /* — Session — */
+  b = section('Session');
+  const acts = el('div','actions');
+  const copy = el('button','chip','Copy look JSON'); copy.type='button';
+  const reset = el('button','chip','Reset'); reset.type='button';
+  acts.append(copy, reset); b.appendChild(acts);
+  const note = el('p','note','Dial it in, copy the JSON, paste it back to me and I will bake those values in as the defaults.');
+  b.appendChild(note);
+  copy.addEventListener('click', async () => {
+    const json = JSON.stringify({
+      render: state,
+      lights: { key:{...rig.key, intensity:key.intensity}, fill:{...rig.fill, intensity:fill.intensity},
+                rim:{...rig.rim, intensity:rim.intensity}, rim2:{...rig.rim2, intensity:rim2.intensity},
+                kick:{...rig.kick, intensity:kick.intensity} },
+      materials: Object.fromEntries(GROUPS.filter(g=>g.state).map(g => [g.id, g.state])),
+      camera: { fovDeg:state.fovDeg, framing:currentFrame },
+      motion: { clip: current ? current.getClip().name : null, fade: fadeTime, speed: timeScale,
+                shuffle, shuffleEvery,
+                layers: Object.fromEntries([...addActions].map(([n,a]) => [n, +a.getEffectiveWeight().toFixed(2)])) }
+    }, null, 2);
+    try { await navigator.clipboard.writeText(json);
+          note.textContent = 'Copied. Paste it into the chat and I will bake it in.'; }
+    catch { note.textContent = json; note.style.whiteSpace='pre-wrap';
+            note.style.fontFamily='"IBM Plex Mono",monospace'; }
+  });
+  reset.addEventListener('click', () => location.reload());
+}
+
+/* ───────────────────────── chrome wiring ───────────────────────── */
+document.querySelectorAll('.rail.frame button').forEach(bn => {
+  bn.addEventListener('click', () => {
+    document.querySelectorAll('.rail.frame button').forEach(o => o.setAttribute('aria-pressed', String(o === bn)));
+    applyFrame(bn.dataset.frame, false);
+  });
+});
+const drawer = $('drawer'), openBtn = $('openDrawer');
+const setDrawer = (open) => { drawer.classList.toggle('open', open); openBtn.setAttribute('aria-expanded', String(open)); };
+openBtn.addEventListener('click', () => setDrawer(!drawer.classList.contains('open')));
+$('closeDrawer').addEventListener('click', () => setDrawer(false));
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') setDrawer(false);
+  if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && e.target === document.body)
+    setDrawer(!drawer.classList.contains('open'));
+});
+
+/* ───────────────────────── resize + loop ───────────────────────── */
+let dprCap = 2, autoQuality = true, renderScale = 1;
+function resize(){
+  const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  const dpr = Math.min(devicePixelRatio || 1, dprCap) * renderScale;
+  renderer.setPixelRatio(dpr); renderer.setSize(w, h, false);
+  composer.setPixelRatio(dpr); composer.setSize(w, h);
+  bloom.setSize(w * dpr, h * dpr);
+}
+addEventListener('resize', resize, { passive:true });
+if (window.visualViewport) visualViewport.addEventListener('resize', resize, { passive:true });
+resize();
+refreshRig();
+
+const fpsEl = $('fps'), trisEl = $('tris'), callsEl = $('calls');
+let frames = 0, acc = 0, last = performance.now(), fpsAvg = 60;
+
+renderer.setAnimationLoop(() => {
+  const now = performance.now(), dt = Math.min(.1, (now - last) / 1000);
+  last = now;
+  if (camGoal){
+    camGoal.t = Math.min(1, camGoal.t + dt / .55);
+    const e = 1 - Math.pow(1 - camGoal.t, 3);
+    camera.position.lerp(camGoal.pos, e * .28);
+    controls.target.lerp(camGoal.target, e * .28);
+    if (camGoal.t >= 1) camGoal = null;
+  }
+  /* ── the bracket ───────────────────────────────────────────────────────
+     Put the animated base back, let the mixer write whatever tracks it owns,
+     then capture the result: that IS the animated pose by construction, on any
+     clip, whether or not it animates the hips and whether or not it is paused.
+     Every layer below restores from this rather than guessing what the mixer
+     touched — guessing quietly built each frame on the last one, and applyGrab
+     had the same bug and did not know it: pause playback, drag an arm, and she
+     folded in half within a couple of seconds. The bracket covers her spine and
+     arms as well as the legs, so that is fixed too. */
+  if (BLOCK.balance) BLOCK.balance.api.balRestore();
+  if (mixer && timeScale > 0){
+    mixer.update(dt * timeScale);
+    if (shuffle && baseActions.size > 1){
+      shuffleAcc += dt * timeScale;
+      if (shuffleAcc >= shuffleEvery){
+        shuffleAcc = 0;
+        const pool = [...baseActions.keys()].filter(n => n.startsWith('Idle_') &&
+                     baseActions.get(n) !== current);
+        /* Which idle she drifts into is a disposition, not a coin toss — shy
+           and sides when she has gone quiet, sway and hair when she is up. */
+        if (pool.length)
+          playBase(BLOCK.mood ? BLOCK.mood.api.moodClip(pool)
+                              : pool[(Math.random() * pool.length) | 0]);
+      }
+    }
+  }
+  if (BLOCK.balance) BLOCK.balance.api.balCapture();
+  /* Layer order, and every step of it is load-bearing:
+       base clip -> additive layers   (the mixer, above, inside the bracket)
+       grab                            runtime override, the arm you are holding
+       twist                           torso roll; BEFORE balance, which then
+                                       sees the moved pelvis and solves the legs
+                                       under it (TWIST.knee is 0 for this)
+       balance                         pelvis, legs, steps; BEFORE applyJiggle so
+                                       the flesh feels her steps — the corollary
+                                       is that a jerky step planner shows up as a
+                                       twitch in her chest, which is a free
+                                       correctness check
+       gaze                            she decides where to look and turns to it;
+                                       after balance, which may have turned her
+       mood                            reads what every layer above just did and
+                                       decides what she feels about it; the only
+                                       thing in the build that fires a face
+       face                            applies whatever mood triggered, this
+                                       frame rather than the next
+       jiggle                          physics, and it reads the head the gaze wrote
+       hair                            last, because it reads everything above
+       balFollow                       the camera, after she has finished moving */
+  applyGrab(dt);
+  if (BLOCK.twist) BLOCK.twist.apply(dt);
+  if (BLOCK.balance) BLOCK.balance.apply(dt);
+  if (BLOCK.gaze) BLOCK.gaze.apply(dt);
+  if (BLOCK.mood) BLOCK.mood.apply(dt);
+  if (BLOCK.face) BLOCK.face.apply(dt);
+  applyJiggle(dt);
+  fadeBaked();
+  if (BLOCK.hair) BLOCK.hair.apply(dt);
+  /* The camera follow used to live inside the mixer block. It has to run after
+     the balance pass, because she may have walked during it, and it has to run
+     whether or not a clip is playing — that block only ran while the mixer was
+     advancing, so pausing playback and leading her away lost her off the side
+     of the frame. */
+  if (followRoot){
+    if (BLOCK.balance) BLOCK.balance.api.balFollow(dt);
+    else if (hipBone){
+      hipBone.getWorldPosition(_fv);
+      const k = Math.min(1, dt * 2.4);
+      const dx = (_fv.x - controls.target.x) * k;
+      controls.target.x += dx;
+      camera.position.x += dx;
+    }
+  }
+  controls.update();
+  if (usePost) composer.render(dt); else renderer.render(scene, camera);
+
+  frames++; acc += dt;
+  if (acc >= .5){
+    const fps = frames / acc;
+    fpsAvg = fpsAvg * .6 + fps * .4;
+    fpsEl.textContent = Math.round(fps);
+    trisEl.textContent = renderer.info.render.triangles.toLocaleString();
+    callsEl.textContent = renderer.info.render.calls;
+    frames = 0; acc = 0;
+    if (autoQuality){
+      if (fpsAvg < 46 && renderScale > .6){ renderScale = Math.max(.6, renderScale - .12); resize(); }
+      else if (fpsAvg > 58 && renderScale < 1){ renderScale = Math.min(1, renderScale + .06); resize(); }
+    }
+  }
+});
+canvas.addEventListener('wheel', e => e.preventDefault(), { passive:false });
+</script>
+
+</body></html>
